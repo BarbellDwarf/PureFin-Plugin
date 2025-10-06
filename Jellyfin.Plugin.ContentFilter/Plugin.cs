@@ -1,10 +1,13 @@
 using System;
 using System.Collections.Generic;
 using Jellyfin.Plugin.ContentFilter.Configuration;
+using Jellyfin.Plugin.ContentFilter.Services;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Serialization;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.ContentFilter;
 
@@ -13,15 +16,25 @@ namespace Jellyfin.Plugin.ContentFilter;
 /// </summary>
 public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 {
+    private readonly ILogger<Plugin> _logger;
+    private PlaybackMonitor? _playbackMonitor;
+    private SegmentStore? _segmentStore;
+
     /// <summary>
     /// Initializes a new instance of the <see cref="Plugin"/> class.
     /// </summary>
     /// <param name="applicationPaths">Instance of the <see cref="IApplicationPaths"/> interface.</param>
     /// <param name="xmlSerializer">Instance of the <see cref="IXmlSerializer"/> interface.</param>
-    public Plugin(IApplicationPaths applicationPaths, IXmlSerializer xmlSerializer)
+    /// <param name="loggerFactory">Logger factory.</param>
+    public Plugin(
+        IApplicationPaths applicationPaths,
+        IXmlSerializer xmlSerializer,
+        ILoggerFactory loggerFactory)
         : base(applicationPaths, xmlSerializer)
     {
         Instance = this;
+        _logger = loggerFactory.CreateLogger<Plugin>();
+        _logger.LogInformation("Content Filter Plugin initialized");
     }
 
     /// <inheritdoc />
@@ -35,6 +48,16 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// </summary>
     public static Plugin? Instance { get; private set; }
 
+    /// <summary>
+    /// Gets the segment store instance.
+    /// </summary>
+    public SegmentStore? SegmentStore => _segmentStore;
+
+    /// <summary>
+    /// Gets the playback monitor instance.
+    /// </summary>
+    public PlaybackMonitor? PlaybackMonitor => _playbackMonitor;
+
     /// <inheritdoc />
     public IEnumerable<PluginPageInfo> GetPages()
     {
@@ -47,4 +70,34 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             }
         };
     }
+
+    /// <summary>
+    /// Initialize plugin services.
+    /// </summary>
+    /// <param name="serviceProvider">Service provider.</param>
+    public void Initialize(IServiceProvider serviceProvider)
+    {
+        try
+        {
+            var loggerFactory = serviceProvider.GetRequiredService<ILoggerFactory>();
+            
+            // Initialize segment store
+            _segmentStore = new SegmentStore(loggerFactory.CreateLogger<SegmentStore>());
+            _ = _segmentStore.LoadAll();
+            
+            // Initialize playback monitor
+            var sessionManager = serviceProvider.GetRequiredService<MediaBrowser.Controller.Session.ISessionManager>();
+            _playbackMonitor = new PlaybackMonitor(
+                sessionManager,
+                _segmentStore,
+                loggerFactory.CreateLogger<PlaybackMonitor>());
+            
+            _logger.LogInformation("Content Filter services initialized successfully");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error initializing Content Filter services");
+        }
+    }
+
 }
