@@ -1,0 +1,66 @@
+version: '3.8'
+
+services:
+  nsfw-detector:
+    build: ./services/nsfw-detector
+    container_name: nsfw-detector
+    ports:
+      - "3001:3000"
+    volumes:
+      - ./models:/app/models:ro
+      - ./temp:/tmp/processing
+    environment:
+      - MODEL_PATH=/app/models
+      - PROCESSING_DIR=/tmp/processing
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+  
+  scene-analyzer:
+    build: ./services/scene-analyzer
+    container_name: scene-analyzer
+    ports:
+      - "3002:3000"
+    volumes:
+      - ./temp:/tmp/processing
+    environment:
+      - PROCESSING_DIR=/tmp/processing
+      - NSFW_DETECTOR_URL=http://nsfw-detector:3000
+      - CONTENT_CLASSIFIER_URL=http://content-classifier:3000
+    depends_on:
+      - nsfw-detector
+      - content-classifier
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+  
+  content-classifier:
+    build: ./services/content-classifier
+    container_name: content-classifier
+    ports:
+      - "3003:3000"
+    volumes:
+      - ./models:/app/models:ro
+      - ./temp:/tmp/processing
+    environment:
+      - MODEL_PATH=/app/models
+      - PROCESSING_DIR=/tmp/processing
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+
+networks:
+  default:
+    name: content-filter-network

@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Content Filter Configuration</title>
+</head>
+<body>
+    <div id="ContentFilterConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-select,emby-checkbox">
+        <div data-role="content">
+            <div class="content-primary">
+                <form id="ContentFilterConfigForm">
+                    <div class="verticalSection">
+                        <h2 class="sectionTitle">Content Filter Settings</h2>
+                        
+                        <div class="checkboxContainer">
+                            <label>
+                                <input type="checkbox" is="emby-checkbox" id="enableNudity" />
+                                <span>Enable Nudity Filtering</span>
+                            </label>
+                        </div>
+                        
+                        <div class="checkboxContainer">
+                            <label>
+                                <input type="checkbox" is="emby-checkbox" id="enableImmodesty" />
+                                <span>Enable Immodesty Filtering</span>
+                            </label>
+                        </div>
+                        
+                        <div class="checkboxContainer">
+                            <label>
+                                <input type="checkbox" is="emby-checkbox" id="enableViolence" />
+                                <span>Enable Violence Filtering</span>
+                            </label>
+                        </div>
+                        
+                        <div class="checkboxContainer">
+                            <label>
+                                <input type="checkbox" is="emby-checkbox" id="enableProfanity" />
+                                <span>Enable Profanity Filtering</span>
+                            </label>
+                        </div>
+                        
+                        <div class="selectContainer">
+                            <label class="selectLabel" for="sensitivity">Sensitivity Level:</label>
+                            <select is="emby-select" id="sensitivity" name="sensitivity">
+                                <option value="strict">Strict</option>
+                                <option value="moderate">Moderate</option>
+                                <option value="permissive">Permissive</option>
+                            </select>
+                        </div>
+                        
+                        <div class="inputContainer">
+                            <label class="inputLabel" for="segmentDirectory">Segment Directory:</label>
+                            <input is="emby-input" type="text" id="segmentDirectory" name="segmentDirectory" />
+                            <div class="fieldDescription">Directory path where segment data is stored</div>
+                        </div>
+                        
+                        <div class="inputContainer">
+                            <label class="inputLabel" for="aiServiceBaseUrl">AI Service Base URL:</label>
+                            <input is="emby-input" type="text" id="aiServiceBaseUrl" name="aiServiceBaseUrl" />
+                            <div class="fieldDescription">Base URL for AI content analysis services</div>
+                        </div>
+                        
+                        <div class="checkboxContainer">
+                            <label>
+                                <input type="checkbox" is="emby-checkbox" id="preferCommunityData" />
+                                <span>Prefer Community Data</span>
+                            </label>
+                            <div class="fieldDescription">Prefer community-curated segments over AI-generated ones when available</div>
+                        </div>
+                        
+                        <div class="checkboxContainer">
+                            <label>
+                                <input type="checkbox" is="emby-checkbox" id="enableOsdFeedback" />
+                                <span>Enable OSD Feedback</span>
+                            </label>
+                            <div class="fieldDescription">Show on-screen notifications when content is filtered</div>
+                        </div>
+                        
+                        <button is="emby-button" type="submit" class="raised button-submit block">
+                            <span>Save</span>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <script type="text/javascript">
+            var ContentFilterConfig = {
+                pluginUniqueId: 'a3f8c6e0-4b2a-4d3c-8e9f-1a2b3c4d5e6f'
+            };
+
+            document.getElementById('ContentFilterConfigPage').addEventListener('pageshow', function () {
+                Dashboard.showLoadingMsg();
+                ApiClient.getPluginConfiguration(ContentFilterConfig.pluginUniqueId).then(function (config) {
+                    document.getElementById('enableNudity').checked = config.EnableNudity;
+                    document.getElementById('enableImmodesty').checked = config.EnableImmodesty;
+                    document.getElementById('enableViolence').checked = config.EnableViolence;
+                    document.getElementById('enableProfanity').checked = config.EnableProfanity;
+                    document.getElementById('sensitivity').value = config.Sensitivity;
+                    document.getElementById('segmentDirectory').value = config.SegmentDirectory;
+                    document.getElementById('aiServiceBaseUrl').value = config.AiServiceBaseUrl;
+                    document.getElementById('preferCommunityData').checked = config.PreferCommunityData;
+                    document.getElementById('enableOsdFeedback').checked = config.EnableOsdFeedback;
+                    Dashboard.hideLoadingMsg();
+                });
+            });
+
+            document.getElementById('ContentFilterConfigForm').addEventListener('submit', function (e) {
+                e.preventDefault();
+                Dashboard.showLoadingMsg();
+
+                ApiClient.getPluginConfiguration(ContentFilterConfig.pluginUniqueId).then(function (config) {
+                    config.EnableNudity = document.getElementById('enableNudity').checked;
+                    config.EnableImmodesty = document.getElementById('enableImmodesty').checked;
+                    config.EnableViolence = document.getElementById('enableViolence').checked;
+                    config.EnableProfanity = document.getElementById('enableProfanity').checked;
+                    config.Sensitivity = document.getElementById('sensitivity').value;
+                    config.SegmentDirectory = document.getElementById('segmentDirectory').value;
+                    config.AiServiceBaseUrl = document.getElementById('aiServiceBaseUrl').value;
+                    config.PreferCommunityData = document.getElementById('preferCommunityData').checked;
+                    config.EnableOsdFeedback = document.getElementById('enableOsdFeedback').checked;
+
+                    ApiClient.updatePluginConfiguration(ContentFilterConfig.pluginUniqueId, config).then(function (result) {
+                        Dashboard.processPluginConfigurationUpdateResult(result);
+                    });
+                });
+
+                return false;
+            });
+        </script>
+    </div>
+</body>
+</html>
