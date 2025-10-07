@@ -42,7 +42,7 @@ pip-delete-this-directory.txt
 
 # Docker
 *.log
-docker-compose.yml
+*./docker-compose.yml
 
 # Segment data
 segments/
@@ -55,3 +55,4 @@ test-segments/
 tmp/
 *.tmp
 *.temp
+ai-services/docker-compose.yml
