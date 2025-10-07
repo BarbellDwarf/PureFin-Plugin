@@ -42,12 +42,14 @@ pip-delete-this-directory.txt
 
 # Docker
 *.log
+docker-compose.yml
 
 # Segment data
 segments/
 *.db
 *.db-shm
 *.db-wal
+test-segments/
 
 # Temporary files
 tmp/
