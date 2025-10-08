@@ -1,4 +1,13 @@
-version: '3.8'
+# PureFin Content Filter - Default AI Services (CPU-Only)
+# 
+# This is the default compose file that uses CPU-only inference
+# For GPU acceleration, use: docker-compose -f docker-compose.gpu.yml up -d
+# For explicit CPU-only: docker-compose -f docker-compose.cpu.yml up -d
+#
+# USAGE:
+#   docker-compose up -d                              # Default (CPU-only)
+#   docker-compose -f docker-compose.gpu.yml up -d   # GPU acceleration
+#   docker-compose -f docker-compose.cpu.yml up -d   # Explicit CPU-only
 
 services:
   nsfw-detector:
@@ -9,9 +18,12 @@ services:
     volumes:
       - ./models:/app/models:ro
       - ./temp:/tmp/processing
+      # OPTIONAL: Uncomment to enable direct media access
+      # - D:/Movies:/mnt/media:ro
     environment:
       - MODEL_PATH=/app/models
       - PROCESSING_DIR=/tmp/processing
+      - USE_GPU=0  # CPU-only mode
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
       interval: 30s
@@ -27,10 +39,15 @@ services:
       - "3002:3000"
     volumes:
       - ./temp:/tmp/processing
+      # CONFIGURE: Replace with your media library path
+      - D:/Movies:/mnt/media:ro
+      # OPTIONAL: Uncomment to share segments with Jellyfin plugin
+      # - D:/jellytestconfig/segments:/segments:rw
     environment:
       - PROCESSING_DIR=/tmp/processing
       - NSFW_DETECTOR_URL=http://nsfw-detector:3000
       - CONTENT_CLASSIFIER_URL=http://content-classifier:3000
+      - USE_GPU=0  # CPU-only mode
     depends_on:
       - nsfw-detector
       - content-classifier
@@ -46,13 +63,16 @@ services:
     build: ./services/content-classifier
     container_name: content-classifier
     ports:
-      - "3003:3000"
+      - "3004:3000"
     volumes:
-      - ./models:/app/models:ro
+      - ./models:/app/models:rw
       - ./temp:/tmp/processing
+      # OPTIONAL: Uncomment to enable direct media access
+      # - D:/Movies:/mnt/media:ro
     environment:
       - MODEL_PATH=/app/models
       - PROCESSING_DIR=/tmp/processing
+      - USE_GPU=0  # CPU-only mode
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
       interval: 30s
