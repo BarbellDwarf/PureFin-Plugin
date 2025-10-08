@@ -1,5 +1,8 @@
 FROM python:3.11-slim
 
+# Ensure deterministic PyTorch behavior and silence CuBLAS warnings
+ENV CUBLAS_WORKSPACE_CONFIG=:4096:8
+
 # Build arg to enable CUDA-capable dependencies inside the image
 ARG BUILD_WITH_CUDA=0
 ENV BUILD_WITH_CUDA=${BUILD_WITH_CUDA}
