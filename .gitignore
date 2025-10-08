@@ -1,0 +1,65 @@
+# Build outputs
+bin/
+obj/
+*.dll
+*.pdb
+*.user
+*.suo
+
+# NuGet packages
+*.nupkg
+packages/
+
+# IDE files
+.vs/
+.vscode/
+.idea/
+*.swp
+*.swo
+.serena/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# AI Services
+ai-services/models/*
+!ai-services/models/.gitkeep
+ai-services/temp/*
+!ai-services/temp/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+pip-log.txt
+pip-delete-this-directory.txt
+.pytest_cache/
+
+# Docker
+*.log
+*./docker-compose.yml
+
+# Segment data
+segments/
+*.db
+*.db-shm
+*.db-wal
+test-segments/
+
+# Temporary files
+tmp/
+*.tmp
+*.temp
+ai-services/.env
+tests/pyproject.toml
+ai-services/docker-compose.cpu.yml
+tests/uv.lock
+ai-services/docker-compose.gpu.yml
+ai-services/docker-compose.yml
+

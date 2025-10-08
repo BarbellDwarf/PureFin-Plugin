@@ -1,0 +1,101 @@
+# PureFin Content Filter - AI Services Docker Compose Template
+# 
+# SETUP INSTRUCTIONS:
+# 1. Copy this file to docker-compose.yml
+# 2. Replace the placeholder paths below with your actual paths
+# 3. Run: docker-compose up -d
+#
+# REQUIRED PATHS TO CONFIGURE:
+# - JELLYFIN_MEDIA_PATH: Path to your Jellyfin media library (where your movies/shows are stored)
+# - SEGMENTS_PATH: Path to store generated segments (can be same as Jellyfin plugin segments directory)
+
+services:
+  nsfw-detector:
+    build: ./services/nsfw-detector
+    container_name: nsfw-detector
+    ports:
+      - "3001:3000"
+    volumes:
+      - ./models:/app/models:ro
+      - ./temp:/tmp/processing
+      # Optional: Mount media for direct frame extraction (recommended)
+      - ${JELLYFIN_MEDIA_PATH:-/path/to/your/media}:/mnt/media:ro
+    environment:
+      - MODEL_PATH=/app/models
+      - PROCESSING_DIR=/tmp/processing
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+  
+  scene-analyzer:
+    build: ./services/scene-analyzer
+    container_name: scene-analyzer
+    ports:
+      - "3002:3000"
+    volumes:
+      - ./temp:/tmp/processing
+      # REQUIRED: Mount your Jellyfin media library (read-only)
+      - ${JELLYFIN_MEDIA_PATH:-/path/to/your/media}:/mnt/media:ro
+      # OPTIONAL: Mount segments directory for coordination with plugin
+      - ${SEGMENTS_PATH:-./segments}:/segments:rw
+    environment:
+      - PROCESSING_DIR=/tmp/processing
+      - NSFW_DETECTOR_URL=http://nsfw-detector:3000
+      - CONTENT_CLASSIFIER_URL=http://content-classifier:3000
+    depends_on:
+      - nsfw-detector
+      - content-classifier
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+  
+  content-classifier:
+    build: ./services/content-classifier
+    container_name: content-classifier
+    ports:
+      - "3004:3000"
+    volumes:
+      - ./models:/app/models:ro
+      - ./temp:/tmp/processing
+      # Optional: Mount media for direct access (recommended)
+      - ${JELLYFIN_MEDIA_PATH:-/path/to/your/media}:/mnt/media:ro
+    environment:
+      - MODEL_PATH=/app/models
+      - PROCESSING_DIR=/tmp/processing
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+
+networks:
+  default:
+    name: content-filter-network
+
+# EXAMPLE CONFIGURATION FOR WINDOWS:
+# Create a .env file in the same directory with:
+#   JELLYFIN_MEDIA_PATH=D:/Movies
+#   SEGMENTS_PATH=D:/jellytestconfig/segments
+#
+# Or on Windows, use absolute paths directly:
+#   - D:/Movies:/mnt/media:ro
+#   - D:/jellytestconfig/segments:/segments:rw
+#
+# EXAMPLE CONFIGURATION FOR LINUX:
+# Create a .env file with:
+#   JELLYFIN_MEDIA_PATH=/mnt/media/movies
+#   SEGMENTS_PATH=/var/lib/jellyfin/segments
+#
+# Or use absolute paths:
+#   - /mnt/media/movies:/mnt/media:ro
+#   - /var/lib/jellyfin/segments:/segments:rw

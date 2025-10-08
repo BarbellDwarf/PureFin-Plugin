@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Content Filter Configuration</title>
+</head>
+<body>
+    <div id="ContentFilterConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-select,emby-checkbox">
+        <div data-role="content">
+            <div class="content-primary">
+                <form id="ContentFilterConfigForm">
+                    <div class="verticalSection">
+                        <h2 class="sectionTitle">Content Filter Settings</h2>
+                        
+                        <div class="checkboxContainer">
+                            <label>
+                                <input type="checkbox" is="emby-checkbox" id="enableNudity" />
+                                <span>Enable Nudity Filtering</span>
+                            </label>
+                        </div>
+                        
+                        <div class="checkboxContainer">
+                            <label>
+                                <input type="checkbox" is="emby-checkbox" id="enableImmodesty" />
+                                <span>Enable Immodesty Filtering</span>
+                            </label>
+                        </div>
+                        
+                        <div class="checkboxContainer">
+                            <label>
+                                <input type="checkbox" is="emby-checkbox" id="enableViolence" />
+                                <span>Enable Violence Filtering</span>
+                            </label>
+                        </div>
+                        
+                        <div class="checkboxContainer">
+                            <label>
+                                <input type="checkbox" is="emby-checkbox" id="enableProfanity" />
+                                <span>Enable Profanity Filtering</span>
+                            </label>
+                        </div>
+                        
+                        <h3 style="margin-top: 20px;">Confidence Thresholds</h3>
+                        <div class="fieldDescription" style="margin-bottom: 15px;">
+                            Set the minimum confidence level (0.0 - 1.0) required to trigger filtering. 
+                            Higher values = more strict filtering (only very confident detections).
+                        </div>
+                        
+                        <div class="inputContainer">
+                            <label class="inputLabel" for="nudityThreshold">
+                                Nudity Threshold: <span id="nudityThresholdValue">0.35</span>
+                            </label>
+                            <input is="emby-input" type="range" id="nudityThreshold" name="nudityThreshold" 
+                                   min="0.1" max="0.9" step="0.05" value="0.35" 
+                                   oninput="document.getElementById('nudityThresholdValue').textContent = this.value" />
+                            <div class="fieldDescription">Current: 0.35 (moderate). Lower = more sensitive, Higher = less sensitive</div>
+                        </div>
+                        
+                        <div class="inputContainer">
+                            <label class="inputLabel" for="immodestyThreshold">
+                                Immodesty Threshold: <span id="immodestyThresholdValue">0.20</span>
+                            </label>
+                            <input is="emby-input" type="range" id="immodestyThreshold" name="immodestyThreshold" 
+                                   min="0.1" max="0.9" step="0.05" value="0.20" 
+                                   oninput="document.getElementById('immodestyThresholdValue').textContent = this.value" />
+                            <div class="fieldDescription">Current: 0.20 (moderate). Lower = more sensitive, Higher = less sensitive</div>
+                        </div>
+                        
+                        <div class="inputContainer">
+                            <label class="inputLabel" for="violenceThreshold">
+                                Violence Threshold: <span id="violenceThresholdValue">0.45</span>
+                            </label>
+                            <input is="emby-input" type="range" id="violenceThreshold" name="violenceThreshold" 
+                                   min="0.1" max="0.9" step="0.05" value="0.45" 
+                                   oninput="document.getElementById('violenceThresholdValue').textContent = this.value" />
+                            <div class="fieldDescription">Current: 0.45 (moderate). Lower = more sensitive, Higher = less sensitive</div>
+                        </div>
+                        
+                        <div class="inputContainer">
+                            <label class="inputLabel" for="profanityThreshold">
+                                Profanity Threshold: <span id="profanityThresholdValue">0.30</span>
+                            </label>
+                            <input is="emby-input" type="range" id="profanityThreshold" name="profanityThreshold" 
+                                   min="0.1" max="0.9" step="0.05" value="0.30" 
+                                   oninput="document.getElementById('profanityThresholdValue').textContent = this.value" />
+                            <div class="fieldDescription">Current: 0.30 (moderate). Lower = more sensitive, Higher = less sensitive</div>
+                        </div>
+                        
+                        <div class="selectContainer">
+                            <label class="selectLabel" for="sensitivity">Sensitivity Level:</label>
+                            <select is="emby-select" id="sensitivity" name="sensitivity">
+                                <option value="strict">Strict</option>
+                                <option value="moderate">Moderate</option>
+                                <option value="permissive">Permissive</option>
+                            </select>
+                        </div>
+                        
+                        <div class="inputContainer">
+                            <label class="inputLabel" for="segmentDirectory">Segment Directory:</label>
+                            <input is="emby-input" type="text" id="segmentDirectory" name="segmentDirectory" />
+                            <div class="fieldDescription">Directory path where segment data is stored</div>
+                        </div>
+                        
+                        <div class="inputContainer">
+                            <label class="inputLabel" for="aiServiceBaseUrl">AI Service Base URL:</label>
+                            <input is="emby-input" type="text" id="aiServiceBaseUrl" name="aiServiceBaseUrl" />
+                            <div class="fieldDescription">Base URL for AI content analysis services</div>
+                        </div>
+                        
+                        <h3 style="margin-top: 20px;">Scene Detection Method</h3>
+                        <div class="fieldDescription" style="margin-bottom: 15px;">
+                            Choose how video scenes are detected for analysis. Different methods balance accuracy vs. speed.
+                        </div>
+                        
+                        <div class="selectContainer">
+                            <label class="selectLabel" for="sceneDetectionMethod">Detection Method:</label>
+                            <select is="emby-select" id="sceneDetectionMethod" name="sceneDetectionMethod" onchange="updateSceneMethodFields()">
+                                <option value="transnetv2">TransNetV2 AI (Recommended - Fast & Accurate)</option>
+                                <option value="ffmpeg">FFmpeg Scene Detection (Slow for long videos)</option>
+                                <option value="sampling">Fixed Interval Sampling (Fastest)</option>
+                            </select>
+                        </div>
+                        
+                        <div class="inputContainer" id="ffmpegThresholdContainer" style="display: none;">
+                            <label class="inputLabel" for="ffmpegSceneThreshold">
+                                FFmpeg Scene Threshold: <span id="ffmpegSceneThresholdValue">0.30</span>
+                            </label>
+                            <input is="emby-input" type="range" id="ffmpegSceneThreshold" name="ffmpegSceneThreshold" 
+                                   min="0.1" max="0.9" step="0.05" value="0.30" 
+                                   oninput="document.getElementById('ffmpegSceneThresholdValue').textContent = this.value" />
+                            <div class="fieldDescription">Lower = more scene cuts detected, Higher = fewer cuts (0.3 is typical)</div>
+                        </div>
+                        
+                        <div class="inputContainer" id="samplingIntervalContainer" style="display: none;">
+                            <label class="inputLabel" for="samplingIntervalSeconds">
+                                Sampling Interval: <span id="samplingIntervalValue">30</span> seconds
+                            </label>
+                            <input is="emby-input" type="range" id="samplingIntervalSeconds" name="samplingIntervalSeconds" 
+                                   min="10" max="180" step="10" value="30" 
+                                   oninput="document.getElementById('samplingIntervalValue').textContent = this.value" />
+                            <div class="fieldDescription">How often to sample frames (30-60s recommended for balance)</div>
+                        </div>
+                        
+                        <div class="checkboxContainer">
+                            <label>
+                                <input type="checkbox" is="emby-checkbox" id="preferCommunityData" />
+                                <span>Prefer Community Data</span>
+                            </label>
+                            <div class="fieldDescription">Prefer community-curated segments over AI-generated ones when available</div>
+                        </div>
+                        
+                        <div class="checkboxContainer">
+                            <label>
+                                <input type="checkbox" is="emby-checkbox" id="enableOsdFeedback" />
+                                <span>Enable OSD Feedback</span>
+                            </label>
+                            <div class="fieldDescription">Show on-screen notifications when content is filtered</div>
+                        </div>
+                        
+                        <button is="emby-button" type="submit" class="raised button-submit block">
+                            <span>Save</span>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <script type="text/javascript">
+            var ContentFilterConfig = {
+                pluginUniqueId: 'a3f8c6e0-4b2a-4d3c-8e9f-1a2b3c4d5e6f'
+            };
+
+            function updateSceneMethodFields() {
+                var method = document.getElementById('sceneDetectionMethod').value;
+                var ffmpegContainer = document.getElementById('ffmpegThresholdContainer');
+                var samplingContainer = document.getElementById('samplingIntervalContainer');
+                
+                ffmpegContainer.style.display = method === 'ffmpeg' ? 'block' : 'none';
+                samplingContainer.style.display = method === 'sampling' ? 'block' : 'none';
+            }
+
+            document.getElementById('ContentFilterConfigPage').addEventListener('pageshow', function () {
+                Dashboard.showLoadingMsg();
+                ApiClient.getPluginConfiguration(ContentFilterConfig.pluginUniqueId).then(function (config) {
+                    document.getElementById('enableNudity').checked = config.EnableNudity;
+                    document.getElementById('enableImmodesty').checked = config.EnableImmodesty;
+                    document.getElementById('enableViolence').checked = config.EnableViolence;
+                    document.getElementById('enableProfanity').checked = config.EnableProfanity;
+                    document.getElementById('sensitivity').value = config.Sensitivity;
+                    document.getElementById('segmentDirectory').value = config.SegmentDirectory;
+                    document.getElementById('aiServiceBaseUrl').value = config.AiServiceBaseUrl;
+                    document.getElementById('preferCommunityData').checked = config.PreferCommunityData;
+                    document.getElementById('enableOsdFeedback').checked = config.EnableOsdFeedback;
+                    
+                    // Set threshold values and update display
+                    var nudityThreshold = config.NudityThreshold || 0.35;
+                    var immodestyThreshold = config.ImmodestyThreshold || 0.20;
+                    var violenceThreshold = config.ViolenceThreshold || 0.45;
+                    var profanityThreshold = config.ProfanityThreshold || 0.30;
+                    
+                    document.getElementById('nudityThreshold').value = nudityThreshold;
+                    document.getElementById('nudityThresholdValue').textContent = nudityThreshold;
+                    
+                    document.getElementById('immodestyThreshold').value = immodestyThreshold;
+                    document.getElementById('immodestyThresholdValue').textContent = immodestyThreshold;
+                    
+                    document.getElementById('violenceThreshold').value = violenceThreshold;
+                    document.getElementById('violenceThresholdValue').textContent = violenceThreshold;
+                    
+                    document.getElementById('profanityThreshold').value = profanityThreshold;
+                    document.getElementById('profanityThresholdValue').textContent = profanityThreshold;
+                    
+                    // Set scene detection values
+                    var sceneMethod = config.SceneDetectionMethod || 'transnetv2';
+                    var ffmpegThreshold = config.FfmpegSceneThreshold || 0.3;
+                    var samplingInterval = config.SamplingIntervalSeconds || 30;
+                    
+                    document.getElementById('sceneDetectionMethod').value = sceneMethod;
+                    document.getElementById('ffmpegSceneThreshold').value = ffmpegThreshold;
+                    document.getElementById('ffmpegSceneThresholdValue').textContent = ffmpegThreshold;
+                    document.getElementById('samplingIntervalSeconds').value = samplingInterval;
+                    document.getElementById('samplingIntervalValue').textContent = samplingInterval;
+                    
+                    updateSceneMethodFields();
+                    Dashboard.hideLoadingMsg();
+                });
+            });
+
+            document.getElementById('ContentFilterConfigForm').addEventListener('submit', function (e) {
+                e.preventDefault();
+                Dashboard.showLoadingMsg();
+
+                ApiClient.getPluginConfiguration(ContentFilterConfig.pluginUniqueId).then(function (config) {
+                    config.EnableNudity = document.getElementById('enableNudity').checked;
+                    config.EnableImmodesty = document.getElementById('enableImmodesty').checked;
+                    config.EnableViolence = document.getElementById('enableViolence').checked;
+                    config.EnableProfanity = document.getElementById('enableProfanity').checked;
+                    config.Sensitivity = document.getElementById('sensitivity').value;
+                    config.SegmentDirectory = document.getElementById('segmentDirectory').value;
+                    config.AiServiceBaseUrl = document.getElementById('aiServiceBaseUrl').value;
+                    config.PreferCommunityData = document.getElementById('preferCommunityData').checked;
+                    config.EnableOsdFeedback = document.getElementById('enableOsdFeedback').checked;
+                    
+                    // Save threshold values
+                    config.NudityThreshold = parseFloat(document.getElementById('nudityThreshold').value);
+                    config.ImmodestyThreshold = parseFloat(document.getElementById('immodestyThreshold').value);
+                    config.ViolenceThreshold = parseFloat(document.getElementById('violenceThreshold').value);
+                    config.ProfanityThreshold = parseFloat(document.getElementById('profanityThreshold').value);
+                    
+                    // Save scene detection settings
+                    config.SceneDetectionMethod = document.getElementById('sceneDetectionMethod').value;
+                    config.FfmpegSceneThreshold = parseFloat(document.getElementById('ffmpegSceneThreshold').value);
+                    config.SamplingIntervalSeconds = parseInt(document.getElementById('samplingIntervalSeconds').value);
+
+                    ApiClient.updatePluginConfiguration(ContentFilterConfig.pluginUniqueId, config).then(function (result) {
+                        Dashboard.processPluginConfigurationUpdateResult(result);
+                        
+                        // Always hide loading message first to prevent infinite loading
+                        Dashboard.hideLoadingMsg();
+                        
+                        // Try to trigger segment regeneration (optional)
+                        tryTriggerSegmentRegeneration();
+                    }).catch(function(error) {
+                        Dashboard.hideLoadingMsg();
+                        Dashboard.alert('Error saving settings: ' + error.message);
+                    });
+                });
+
+                return false;
+            });
+
+            function tryTriggerSegmentRegeneration() {
+                // Attempt to trigger analysis task, but don't block UI if it fails
+                try {
+                    fetch('/ScheduledTasks', {
+                        method: 'GET',
+                        headers: {
+                            'X-Emby-Authorization': ApiClient.accessToken ? 'MediaBrowser Token=' + ApiClient.accessToken : ''
+                        }
+                    }).then(function(response) {
+                        if (response.ok) {
+                            return response.json();
+                        }
+                        throw new Error('Failed to fetch tasks');
+                    }).then(function(tasks) {
+                        // Look for Content Filter analysis task
+                        var analyzeTask = tasks.find(t => 
+                            t.Name === 'Analyze Library for Content Filter' || 
+                            t.Name === 'Analyze Library Content'
+                        );
+                        
+                        if (analyzeTask) {
+                            // Trigger the task using correct endpoint
+                            fetch('/ScheduledTasks/Running/' + analyzeTask.Id, {
+                                method: 'POST',
+                                headers: {
+                                    'X-Emby-Authorization': ApiClient.accessToken ? 'MediaBrowser Token=' + ApiClient.accessToken : ''
+                                }
+                            }).then(function(taskResponse) {
+                                if (taskResponse.ok) {
+                                    Dashboard.alert('Settings saved! Segment regeneration started in background.');
+                                } else {
+                                    Dashboard.alert('Settings saved! Please manually run "Analyze Library for Content Filter" task to apply new thresholds.');
+                                }
+                            }).catch(function() {
+                                Dashboard.alert('Settings saved! Please manually run "Analyze Library for Content Filter" task to apply new thresholds.');
+                            });
+                        } else {
+                            Dashboard.alert('Settings saved! Analysis task not found - new thresholds will apply to future analyses.');
+                        }
+                    }).catch(function() {
+                        Dashboard.alert('Settings saved successfully! New thresholds will apply to future analyses.');
+                    });
+                } catch (error) {
+                    // Silent fail - settings were already saved successfully
+                    Dashboard.alert('Settings saved successfully!');
+                }
+            }
+        </script>
+    </div>
+</body>
+</html>

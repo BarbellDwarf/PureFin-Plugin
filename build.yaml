@@ -1,0 +1,24 @@
+---
+name: "Content Filter"
+guid: "a3f8c6e0-4b2a-4d3c-8e9f-1a2b3c4d5e6f"
+version: "1.0.0"
+targetAbi: "10.8.0.0"
+framework: "net8.0"
+owner: "PureFin"
+overview: "AI-powered content filtering for Jellyfin"
+description: >
+  Content Filter provides automatic detection and filtering of objectionable 
+  content including nudity, immodesty, violence, and profanity using self-hosted 
+  AI models and community-curated data.
+category: "General"
+artifacts:
+  - "Jellyfin.Plugin.ContentFilter.dll"
+changelog: >
+  ### Version 1.0.0
+  
+  Initial release featuring:
+  - AI-powered content detection
+  - Real-time playback filtering
+  - User-configurable sensitivity levels
+  - Support for nudity, immodesty, violence, and profanity filtering
+  - Community data integration
