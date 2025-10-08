@@ -16,6 +16,7 @@ packages/
 .idea/
 *.swp
 *.swo
+.serena/
 
 # OS files
 .DS_Store

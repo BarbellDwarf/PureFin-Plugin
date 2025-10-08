@@ -132,6 +132,23 @@ public class SegmentStore
         _logger.LogInformation("Loaded {Count} segment files", _segments.Count);
     }
 
+    /// <summary>
+    /// Reloads all segment data from disk. Useful when configuration changes or new segments are generated.
+    /// </summary>
+    /// <returns>Task representing the asynchronous operation.</returns>
+    public async Task ReloadAll()
+    {
+        _logger.LogInformation("Reloading all segment data...");
+        
+        lock (_segments)
+        {
+            _segments.Clear();
+        }
+        
+        await LoadAll();
+        _logger.LogInformation("Segment data reloaded successfully");
+    }
+
     private SegmentData? LoadFromFile(string mediaId)
     {
         var filePath = GetFilePath(mediaId);

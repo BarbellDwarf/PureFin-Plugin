@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+  <TargetFramework>net6.0</TargetFramework>
     <AssemblyName>Jellyfin.Plugin.ContentFilter</AssemblyName>
     <RootNamespace>Jellyfin.Plugin.ContentFilter</RootNamespace>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
@@ -10,8 +10,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Jellyfin.Controller" Version="10.8.13" />
-    <PackageReference Include="Jellyfin.Model" Version="10.8.13" />
+  <PackageReference Include="Jellyfin.Controller" Version="10.8.13" />
+  <PackageReference Include="Jellyfin.Model" Version="10.8.13" />
     <PackageReference Include="Microsoft.Extensions.Http" Version="8.0.0" />
   </ItemGroup>
 
