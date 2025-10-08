@@ -98,17 +98,25 @@ public class PlaybackMonitor : IDisposable
 
     private void CheckForSegmentBoundary(SessionState state)
     {
+        var config = Plugin.Instance?.Configuration;
+        if (config == null)
+        {
+            return;
+        }
+
         var activeSegments = _segmentStore.GetActiveSegments(state.MediaId, state.LastPosition);
 
-        // Check if we entered a new segment
-        var currentSegment = activeSegments.FirstOrDefault();
-        if (currentSegment != null && !Equals(currentSegment, state.ActiveSegment))
+        // Filter segments based on current configuration thresholds
+        var filterableSegment = activeSegments.FirstOrDefault(segment => segment.ShouldFilter(config));
+
+        // Check if we entered a new segment that should be filtered
+        if (filterableSegment != null && !Equals(filterableSegment, state.ActiveSegment))
         {
-            state.ActiveSegment = currentSegment;
-            _ = ApplyFilterAction(state, currentSegment);
+            state.ActiveSegment = filterableSegment;
+            _ = ApplyFilterAction(state, filterableSegment);
         }
-        // Check if we left a segment
-        else if (currentSegment == null && state.ActiveSegment != null)
+        // Check if we left a segment or current segment no longer meets threshold
+        else if (filterableSegment == null && state.ActiveSegment != null)
         {
             state.ActiveSegment = null;
         }
@@ -122,11 +130,15 @@ public class PlaybackMonitor : IDisposable
             return;
         }
 
+        // Get active categories based on current configuration
+        var activeCategories = segment.GetActiveCategories(config);
+        
         _logger.LogInformation(
-            "Applying filter action: Session={SessionId}, Action={Action}, Categories={Categories}",
+            "Applying filter action: Session={SessionId}, Action={Action}, Categories={Categories}, RawScores={RawScores}",
             state.SessionId,
             segment.Action,
-            string.Join(", ", segment.Categories));
+            string.Join(", ", activeCategories),
+            string.Join(", ", segment.RawScores.Select(kvp => $"{kvp.Key}:{kvp.Value:F2}")));
 
         try
         {
@@ -167,7 +179,7 @@ public class PlaybackMonitor : IDisposable
             // Show OSD feedback if enabled
             if (config.EnableOsdFeedback)
             {
-                var message = $"Content Filtered: {string.Join(", ", segment.Categories)}";
+                var message = $"Content Filtered: {string.Join(", ", activeCategories)}";
                 await _sessionManager.SendMessageCommand(
                     jellyfinSession.Id,
                     jellyfinSession.Id,
