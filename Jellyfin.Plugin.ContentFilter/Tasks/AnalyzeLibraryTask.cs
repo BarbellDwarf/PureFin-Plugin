@@ -31,20 +31,19 @@ public class AnalyzeLibraryTask : IScheduledTask
     /// Initializes a new instance of the <see cref="AnalyzeLibraryTask"/> class.
     /// </summary>
     /// <param name="libraryManager">Library manager.</param>
+    /// <param name="segmentStore">Segment store.</param>
     /// <param name="logger">Logger.</param>
     /// <param name="httpClientFactory">HTTP client factory.</param>
     public AnalyzeLibraryTask(
         ILibraryManager libraryManager,
+        SegmentStore segmentStore,
         ILogger<AnalyzeLibraryTask> logger,
         IHttpClientFactory httpClientFactory)
     {
         _libraryManager = libraryManager;
+        _segmentStore = segmentStore;
         _logger = logger;
         _httpClientFactory = httpClientFactory;
-        
-        // Get SegmentStore from plugin instance
-        _segmentStore = Plugin.Instance?.SegmentStore 
-            ?? throw new InvalidOperationException("Plugin not initialized or SegmentStore not available");
     }
 
     /// <inheritdoc />

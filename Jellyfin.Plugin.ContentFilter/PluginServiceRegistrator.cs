@@ -1,14 +1,32 @@
 
 using System;
-using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.ContentFilter.Services;
+using Jellyfin.Plugin.ContentFilter.Tasks;
+using MediaBrowser.Controller;
+using MediaBrowser.Controller.Plugins;
 using MediaBrowser.Controller.Session;
+using MediaBrowser.Model.Tasks;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.ContentFilter;
+
+/// <summary>
+/// Registers Content Filter plugin services with Jellyfin's DI container.
+/// </summary>
+public class PluginServiceRegistrator : IPluginServiceRegistrator
+{
+    /// <inheritdoc />
+    public void RegisterServices(IServiceCollection serviceCollection, IServerApplicationHost applicationHost)
+    {
+        serviceCollection.AddSingleton<SegmentStore>();
+        serviceCollection.AddHostedService<PluginEntryPoint>();
+        serviceCollection.AddSingleton<IScheduledTask, AnalyzeLibraryTask>();
+    }
+}
 
 /// <summary>
 /// Hosted service for Content Filter plugin initialization.
@@ -18,56 +36,40 @@ public class PluginEntryPoint : IHostedService, IDisposable
     private readonly ILogger<PluginEntryPoint> _logger;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ISessionManager _sessionManager;
+    private readonly SegmentStore _segmentStore;
     private PlaybackMonitor? _playbackMonitor;
-
 
     /// <summary>
     /// Initializes a new instance of the <see cref="PluginEntryPoint"/> class.
     /// </summary>
     /// <param name="loggerFactory">The logger factory.</param>
     /// <param name="sessionManager">The session manager.</param>
+    /// <param name="segmentStore">The segment store.</param>
     public PluginEntryPoint(
         ILoggerFactory loggerFactory,
-        ISessionManager sessionManager)
+        ISessionManager sessionManager,
+        SegmentStore segmentStore)
     {
         _loggerFactory = loggerFactory;
         _sessionManager = sessionManager;
+        _segmentStore = segmentStore;
         _logger = loggerFactory.CreateLogger<PluginEntryPoint>();
     }
 
-
-    /// <summary>
-    /// Starts the Content Filter plugin service.
-    /// </summary>
-    /// <param name="cancellationToken">A cancellation token.</param>
-    /// <returns>A task representing the asynchronous operation.</returns>
+    /// <inheritdoc />
     public async Task StartAsync(CancellationToken cancellationToken)
     {
         _logger.LogInformation("Content Filter plugin starting up");
-        
+
         try
         {
-            var plugin = Plugin.Instance;
-            if (plugin == null)
-            {
-                _logger.LogError("Plugin instance is null");
-                return;
-            }
+            await _segmentStore.LoadAll();
 
-            // Initialize SegmentStore
-            var segmentStore = new SegmentStore(_loggerFactory.CreateLogger<SegmentStore>());
-            await segmentStore.LoadAll();
-            
-            // Initialize PlaybackMonitor
             _playbackMonitor = new PlaybackMonitor(
                 _sessionManager,
-                segmentStore,
+                _segmentStore,
                 _loggerFactory.CreateLogger<PlaybackMonitor>());
-            
-            // Store references in plugin instance using reflection
-            var segmentStoreField = typeof(Plugin).GetField("_segmentStore", BindingFlags.NonPublic | BindingFlags.Instance);
-            segmentStoreField?.SetValue(plugin, segmentStore);
-            
+
             _logger.LogInformation("Content Filter plugin started successfully - SegmentStore and PlaybackMonitor initialized");
         }
         catch (Exception ex)
@@ -76,34 +78,30 @@ public class PluginEntryPoint : IHostedService, IDisposable
         }
     }
 
-
-    /// <summary>
-    /// Stops the Content Filter plugin service.
-    /// </summary>
-    /// <param name="cancellationToken">A cancellation token.</param>
-    /// <returns>A task representing the asynchronous operation.</returns>
+    /// <inheritdoc />
     public Task StopAsync(CancellationToken cancellationToken)
     {
         _logger.LogInformation("Content Filter plugin stopping");
-        
+
         try
         {
             _playbackMonitor?.Dispose();
+            _playbackMonitor = null;
             _logger.LogInformation("PlaybackMonitor disposed");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error disposing PlaybackMonitor");
         }
-        
+
         return Task.CompletedTask;
     }
 
-    /// <summary>
-    /// Disposes resources used by the Content Filter plugin service.
-    /// </summary>
+    /// <inheritdoc />
     public void Dispose()
     {
-        // Cleanup if needed
+        _playbackMonitor?.Dispose();
+        _playbackMonitor = null;
     }
 }
+

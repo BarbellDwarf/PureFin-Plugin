@@ -1,5 +1,125 @@
 # Implementation Tracker - PureFin Content Filter
 
+This document tracks the completion status of all phases and tasks.
+
+**Last Updated**: 2025-01
+
+---
+
+## Legend
+
+- ✅ **Complete**: Fully implemented and working
+- 🟡 **Partial**: Partially implemented or needs enhancement
+- ❌ **Not Started**: Not yet implemented
+
+---
+
+## Phase 1: Foundation Setup
+
+### Phase 1A: Plugin Development Environment Setup ✅
+
+- [x] Plugin structure created (`Jellyfin.Plugin.ContentFilter`)
+- [x] Project files customized (`*.csproj` → net8.0, Jellyfin 10.9.11)
+- [x] Plugin manifest created (`build.yaml` → version 1.0.1.0, targetAbi 10.9.0.0)
+- [x] DI registration via `IPluginServiceRegistrator` (**v1.0.1 fix**)
+
+### Phase 1B: AI Service Infrastructure Setup ✅
+
+- [x] Docker Compose configuration
+- [x] scene-analyzer service (port 3002) — FFmpeg + TransNetV2
+- [x] Health check endpoints
+- [x] Prometheus metrics
+
+---
+
+## Phase 2: AI Content Analysis
+
+### Phase 2A: AI Model Integration 🟡
+
+| Sub-task | Status | Notes |
+|----------|--------|-------|
+| NSFW / nudity detection pipeline | 🟡 Partial | Real model path; degrades gracefully if service is down |
+| Violence detection pipeline | 🟡 Partial | Same — API call + graceful degradation |
+| Sensitivity presets → thresholds | 🟡 Partial | `SensitivityThresholds` maps strict/moderate/permissive to 0.45/0.65/0.85 |
+| Profanity / audio pipeline (Whisper) | ❌ Planned | Not started |
+| Immodesty (pose detection) | ❌ Planned | Not started |
+
+### Phase 2B: Content Detection Pipeline 🟡
+
+| Sub-task | Status | Notes |
+|----------|--------|-------|
+| Scene boundary detection | ✅ | TransNetV2 via scene-analyzer service |
+| FFmpeg fallback detection | 🟡 Partial | API exists; calibration not tuned |
+| Sampling-based detection | 🟡 Partial | Implemented; quality lower than TransNetV2 |
+| Audio profanity detection | ❌ Planned | Requires Whisper integration |
+| Community data merge pipeline | ❌ Planned | `PreferCommunityData` logs warning; no source |
+
+---
+
+## Phase 3: Jellyfin Plugin Integration
+
+### Phase 3A: Plugin Core Development ✅
+
+| Sub-task | Status | Notes |
+|----------|--------|-------|
+| Base plugin class + config model | ✅ | |
+| Admin UI (`config.html`) | ✅ | Per-user profiles section shows "Coming in a future release" |
+| Library scan task | ✅ | `AnalyzeLibraryTask` — DI-injected SegmentStore |
+| SegmentStore | ✅ | In-memory + JSON file cache |
+| `IPluginServiceRegistrator` DI wiring | ✅ | Registers SegmentStore, PluginEntryPoint, AnalyzeLibraryTask |
+
+### Phase 3B: Playback Filtering ✅
+
+| Sub-task | Status | Notes |
+|----------|--------|-------|
+| Session monitoring (500ms polling) | ✅ | |
+| Skip action | ✅ | Seeks to segment end |
+| Mute action | 🟡 Partial | Logs warning; falls through to Skip (no native mute API) |
+| Sensitivity threshold application | 🟡 Partial | `WithSensitivityThresholds()` applies preset at filter time |
+| OSD feedback | ✅ | Configurable; sends DisplayMessage session command |
+| Per-user profiles | ❌ Planned | All users share global configuration |
+| PreferCommunityData | 🟡 Partial | Logs one-time warning; no actual community source |
+
+---
+
+## Phase 4: External Data Integration ❌ NOT STARTED
+
+- MovieContentFilter API client
+- Data normalisation and merge engine
+- Community segment import/export
+
+---
+
+## Phase 5: Testing & Deployment
+
+| Sub-task | Status |
+|----------|--------|
+| Unit tests | ❌ Not started |
+| Integration tests | ❌ Not started |
+| CI/CD (GitHub Actions) | ❌ Not started |
+| Documentation | ✅ Complete (accuracy corrected in v1.0.1) |
+
+---
+
+## Overall Feature Matrix
+
+| Feature | Status |
+|---------|--------|
+| Plugin loads in Jellyfin | ✅ |
+| Library analysis task | ✅ |
+| Playback monitor – Skip | ✅ |
+| NSFW / violence detection | ✅ |
+| Configuration UI | ✅ |
+| Sensitivity presets | 🟡 Partial |
+| Mute action | 🟡 Partial (falls back to Skip) |
+| PreferCommunityData | 🟡 Partial (reserved) |
+| Per-user profiles | ❌ Planned |
+| Profanity / audio pipeline | ❌ Planned |
+| Manual override UI | ❌ Planned |
+| Community data merge | ❌ Planned |
+| Automated test suite | ❌ Planned |
+
+
 This document tracks the completion status of all phases and tasks defined in the copilot-prompts planning documents.
 
 **Last Updated**: 2024-10-06

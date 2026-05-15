@@ -2,6 +2,125 @@
 
 ## Overview
 
+AI-powered content filtering plugin for Jellyfin. Detects and skips objectionable content (nudity, violence, immodesty) using a self-hosted scene-analyzer service. Profanity/audio filtering and per-user profiles are planned for future releases.
+
+> **Compatibility**: net8.0 · Jellyfin SDK 10.9.11 · targetAbi 10.9.0.0
+
+---
+
+## Implementation Status
+
+| Area | Status |
+|------|--------|
+| Plugin loads & registers services | ✅ Complete (v1.0.1 DI fix) |
+| Library analysis scheduled task | ✅ Complete |
+| Playback monitor + Skip action | ✅ Complete |
+| Configuration UI | ✅ Complete |
+| Sensitivity threshold mapping | 🟡 Partial |
+| Mute action | 🟡 Partial (falls back to Skip) |
+| PreferCommunityData | 🟡 Partial (reserved setting) |
+| Per-user profiles | ❌ Planned |
+| Profanity / audio pipeline | ❌ Planned |
+| Manual override UI | ❌ Planned |
+| Community data merge | ❌ Planned |
+
+---
+
+## What Was Built
+
+### 1. Jellyfin Plugin (C# / .NET 8.0)
+
+**Location**: `Jellyfin.Plugin.ContentFilter/`
+
+| Component | Description |
+|-----------|-------------|
+| `Plugin.cs` | Minimal base plugin; config access + static Instance |
+| `PluginServiceRegistrator.cs` | `IPluginServiceRegistrator` — registers SegmentStore, PluginEntryPoint, AnalyzeLibraryTask into DI |
+| `Configuration/PluginConfiguration.cs` | Settings POCO + `SensitivityThresholds` static helper |
+| `Models/Segment.cs`, `SegmentData.cs` | Segment schema with threshold-aware category evaluation |
+| `Services/SegmentStore.cs` | In-memory cache + JSON file persistence |
+| `Services/PlaybackMonitor.cs` | 500 ms polling; Skip/Mute actions; OSD feedback |
+| `Tasks/AnalyzeLibraryTask.cs` | Scheduled task — calls scene-analyzer, persists segments |
+| `Web/config.html` | Admin configuration page |
+
+### 2. AI Services (Python + Docker)
+
+**Location**: `ai-services/`
+
+| Service | Port | Purpose |
+|---------|------|---------|
+| scene-analyzer | 3002 | TransNetV2 scene detection + NSFW scoring |
+
+### 3. Documentation
+
+- `README.md` — accurate feature status table, ABI policy, quick start
+- `IMPLEMENTATION_TRACKER.md` — per-feature status
+- `PROJECT_SUMMARY.md` — this file
+- `docs/` — install, configuration, user guide, API references
+
+---
+
+## Architecture
+
+```
+Jellyfin Server
+└── Content Filter Plugin (.NET 8)
+    ├── PluginServiceRegistrator  ← IPluginServiceRegistrator
+    ├── SegmentStore              ← in-memory + JSON cache
+    ├── PlaybackMonitor           ← 500 ms polling; skip/fallback-mute
+    └── AnalyzeLibraryTask        ← calls scene-analyzer
+
+AI Services (Docker)
+└── scene-analyzer (port 3002)   ← TransNetV2 + FFmpeg
+```
+
+## Data Flow
+
+**Analysis phase**: Scheduled task scans library → sends video path to scene-analyzer → stores JSON segment files.
+
+**Playback phase**: PlaybackMonitor polls sessions every 500 ms → loads segments → applies sensitivity thresholds at runtime → executes Skip (or fallback Skip for Mute).
+
+---
+
+## Technology Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Plugin | .NET 8.0 / C# |
+| Jellyfin SDK | 10.9.11 (`ExcludeAssets="runtime"`) |
+| AI services | Python 3.11, Flask, FFmpeg, Docker |
+| Storage | JSON files (one per media item) |
+
+---
+
+## Quick Start
+
+```bash
+# Start AI services
+cd ai-services && docker compose up -d
+
+# Build plugin (.NET 8 SDK required)
+cd Jellyfin.Plugin.ContentFilter
+dotnet build --configuration Release
+cp bin/Release/net8.0/*.dll /path/to/jellyfin/plugins/
+```
+
+Requirements: Jellyfin 10.9.x–10.11.x · Docker Engine 24+ · 8 GB+ RAM
+
+---
+
+## Future Enhancements
+
+1. **Real model integration** — swap mock predictions for trained weights
+2. **Audio profanity detection** — Whisper-based pipeline
+3. **Per-user profiles** — per-session threshold overrides
+4. **Community data** — MovieContentFilter API integration
+5. **Manual override UI** — segment review and edit interface
+6. **Automated testing** — unit + integration tests, CI/CD
+
+
+## Overview
+
 This project implements a comprehensive AI-powered content filtering system for Jellyfin media server. The system automatically detects and filters objectionable content including nudity, immodesty, violence, and profanity.
 
 ## Implementation Status: ✅ COMPLETE

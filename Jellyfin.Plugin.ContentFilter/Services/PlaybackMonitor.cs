@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Plugin.ContentFilter.Configuration;
 using Jellyfin.Plugin.ContentFilter.Models;
 using MediaBrowser.Controller.Session;
 using MediaBrowser.Model.Session;
@@ -21,6 +22,7 @@ public class PlaybackMonitor : IDisposable
     private readonly ConcurrentDictionary<string, SessionState> _sessions = new();
     private readonly Timer _monitorTimer;
     private bool _disposed;
+    private bool _communityDataWarningLogged;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="PlaybackMonitor"/> class.
@@ -104,16 +106,25 @@ public class PlaybackMonitor : IDisposable
             return;
         }
 
+        if (config.PreferCommunityData && !_communityDataWarningLogged)
+        {
+            _logger.LogWarning("Community data source not yet implemented; using analysis results");
+            _communityDataWarningLogged = true;
+        }
+
+        // Derive thresholds from the configured sensitivity preset
+        var effectiveConfig = config.WithSensitivityThresholds();
+
         var activeSegments = _segmentStore.GetActiveSegments(state.MediaId, state.LastPosition);
 
-        // Filter segments based on current configuration thresholds
-        var filterableSegment = activeSegments.FirstOrDefault(segment => segment.ShouldFilter(config));
+        // Filter segments based on sensitivity-derived thresholds
+        var filterableSegment = activeSegments.FirstOrDefault(segment => segment.ShouldFilter(effectiveConfig));
 
         // Check if we entered a new segment that should be filtered
         if (filterableSegment != null && !Equals(filterableSegment, state.ActiveSegment))
         {
             state.ActiveSegment = filterableSegment;
-            _ = ApplyFilterAction(state, filterableSegment);
+            _ = ApplyFilterAction(state, filterableSegment, effectiveConfig);
         }
         // Check if we left a segment or current segment no longer meets threshold
         else if (filterableSegment == null && state.ActiveSegment != null)
@@ -122,7 +133,7 @@ public class PlaybackMonitor : IDisposable
         }
     }
 
-    private async Task ApplyFilterAction(SessionState state, Segment segment)
+    private async Task ApplyFilterAction(SessionState state, Segment segment, PluginConfiguration effectiveConfig)
     {
         var config = Plugin.Instance?.Configuration;
         if (config == null)
@@ -130,8 +141,8 @@ public class PlaybackMonitor : IDisposable
             return;
         }
 
-        // Get active categories based on current configuration
-        var activeCategories = segment.GetActiveCategories(config);
+        // Get active categories based on sensitivity-derived thresholds
+        var activeCategories = segment.GetActiveCategories(effectiveConfig);
         
         _logger.LogInformation(
             "Applying filter action: Session={SessionId}, Action={Action}, Categories={Categories}, RawScores={RawScores}",
@@ -166,10 +177,9 @@ public class PlaybackMonitor : IDisposable
                     break;
 
                 case "mute":
-                    // Mute audio (if supported by client)
-                    // This is a simplified implementation
-                    _logger.LogInformation("Mute action requested but not fully implemented");
-                    break;
+                    // Mute is not supported via the Jellyfin plugin API; fall back to skip
+                    _logger.LogWarning("Mute action is not supported via Jellyfin plugin API; falling back to Skip");
+                    goto case "skip";
 
                 default:
                     _logger.LogWarning("Unknown action: {Action}", segment.Action);

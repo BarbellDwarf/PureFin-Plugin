@@ -92,4 +92,55 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Used when SceneDetectionMethod is "sampling".
     /// </summary>
     public int SamplingIntervalSeconds { get; set; } = 30;
+
+    /// <summary>
+    /// Returns a copy of this configuration with NSFW and violence thresholds derived from
+    /// the <see cref="Sensitivity"/> preset, overriding the individual slider values.
+    /// </summary>
+    public PluginConfiguration WithSensitivityThresholds()
+    {
+        var (nsfwThreshold, violenceThreshold) = SensitivityThresholds.GetThresholds(Sensitivity);
+        return new PluginConfiguration
+        {
+            EnableNudity = EnableNudity,
+            EnableImmodesty = EnableImmodesty,
+            EnableViolence = EnableViolence,
+            EnableProfanity = EnableProfanity,
+            NudityThreshold = nsfwThreshold,
+            ImmodestyThreshold = nsfwThreshold,
+            ViolenceThreshold = violenceThreshold,
+            ProfanityThreshold = ProfanityThreshold,
+            Sensitivity = Sensitivity,
+            SegmentDirectory = SegmentDirectory,
+            PreferCommunityData = PreferCommunityData,
+            AiServiceBaseUrl = AiServiceBaseUrl,
+            EnableOsdFeedback = EnableOsdFeedback,
+            SceneDetectionMethod = SceneDetectionMethod,
+            FfmpegSceneThreshold = FfmpegSceneThreshold,
+            SamplingIntervalSeconds = SamplingIntervalSeconds
+        };
+    }
+}
+
+/// <summary>
+/// Maps the Sensitivity preset string to concrete NSFW and violence score thresholds.
+/// Lower thresholds = more aggressive filtering (more content is caught).
+/// </summary>
+public static class SensitivityThresholds
+{
+    /// <summary>
+    /// Returns (NsfwThreshold, ViolenceThreshold) for the given sensitivity preset.
+    /// <list type="bullet">
+    ///   <item><term>strict</term><description>0.45 / 0.45 — catches most content</description></item>
+    ///   <item><term>moderate</term><description>0.65 / 0.65 — balanced (default)</description></item>
+    ///   <item><term>permissive</term><description>0.85 / 0.85 — only very-high-confidence content</description></item>
+    /// </list>
+    /// </summary>
+    public static (double NsfwThreshold, double ViolenceThreshold) GetThresholds(string? sensitivity) =>
+        sensitivity?.ToLowerInvariant() switch
+        {
+            "strict" => (0.45, 0.45),
+            "permissive" => (0.85, 0.85),
+            _ => (0.65, 0.65)
+        };
 }

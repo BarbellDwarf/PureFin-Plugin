@@ -1,114 +1,124 @@
 # PureFin Content Filter Plugin
 
-AI-powered content filtering for Jellyfin media server. Automatically detect and filter objectionable content including nudity, immodesty, violence, and profanity.
+AI-powered content filtering for Jellyfin media server. Detects and skips objectionable content using self-hosted AI analysis.
 
-## Features
+> **ABI / Compatibility**: net8.0 · Jellyfin 10.9.x – 10.11.x · targetAbi 10.9.0.0
 
-- 🤖 **AI-Powered Detection**: Uses machine learning models to analyze video content
-- 🎯 **Multi-Category Filtering**: Filter nudity, immodesty, violence, and profanity
-- ⚙️ **Configurable Sensitivity**: Choose strict, moderate, or permissive filtering levels
-- 👥 **Per-User Profiles**: Different filtering preferences for each user
-- 🌐 **Community Data**: Leverage manually-curated segment data from the community
-- ⚡ **Real-Time Filtering**: Automatic skip/mute during playback
-- 🔧 **Manual Overrides**: Edit or disable filtering for specific media items
+---
+
+## Feature Status
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Plugin loads in Jellyfin | ✅ Implemented | Requires DI registration fix (v1.0.1+) |
+| Library analysis task | ✅ Implemented | Schedules daily, calls scene-analyzer, stores segments |
+| Playback monitor – Skip action | ✅ Implemented | Seeks to end of flagged segment |
+| NSFW / violence detection pipeline | ✅ Implemented | Real model path; degrades gracefully if service down |
+| Configuration UI | ✅ Implemented | Web page renders in Jellyfin dashboard |
+| Sensitivity presets (Low/Medium/High) | ⚠️ Partial | Maps to thresholds in code; individual sliders override |
+| Mute action | ⚠️ Partial | Logs warning and falls back to Skip (no native mute API) |
+| PreferCommunityData setting | ⚠️ Partial | Config/UI only — logs warning; no source arbitration |
+| Per-user profiles | 🔲 Planned | Not implemented; all users share global settings |
+| Profanity / audio pipeline | 🔲 Planned | Whisper integration not started |
+| Manual override UI | 🔲 Planned | Segment edit interface not started |
+| Community data merge pipeline | 🔲 Planned | MovieContentFilter integration not started |
+
+---
 
 ## Quick Start
 
 ### Prerequisites
 
-- Jellyfin 10.8.0+
-- Docker Engine 24+
-- 8GB+ RAM (16GB recommended)
+- Jellyfin 10.9.x – 10.11.x
+- Docker Engine 24+ (for AI services)
+- 8 GB+ RAM (16 GB recommended)
 
 ### Installation
 
-1. **Deploy AI Services**:
+1. **Deploy AI Services** (scene-analyzer at `http://localhost:3002`):
 ```bash
 cd ai-services
 docker compose up -d
 ```
 
 2. **Install Plugin**:
-```bash
-cd Jellyfin.Plugin.ContentFilter
-dotnet build --configuration Release
-# Copy DLL to Jellyfin plugins directory
-```
+   - Build: `dotnet build --configuration Release` (requires .NET 8 SDK)
+   - Copy `Jellyfin.Plugin.ContentFilter.dll` to your Jellyfin plugins directory
 
-3. **Configure & Run**:
-- Access Jellyfin Dashboard → Plugins → Content Filter
-- Configure your preferences
-- Run "Analyze Library" task
+3. **Configure**:
+   - Jellyfin Dashboard → Plugins → Content Filter
+   - Set **AI Service Base URL** to `http://localhost:3002` (or your host)
+   - Run the **Analyze Library for Content Filter** scheduled task
 
-## Documentation
-
-- [Installation Guide](docs/install.md)
-- [Configuration Guide](docs/configuration.md)
-- [User Guide](docs/user-guide.md)
-- [Troubleshooting](docs/troubleshooting.md)
-- [API Documentation](docs/api/)
+---
 
 ## Architecture
 
-### Components
+```
+Jellyfin Server
+└── Content Filter Plugin (.NET 8)
+    ├── PluginServiceRegistrator  ← registers services via IPluginServiceRegistrator
+    ├── SegmentStore              ← in-memory + JSON file cache
+    ├── PlaybackMonitor           ← 500 ms polling; executes skip actions
+    └── AnalyzeLibraryTask        ← calls AI scene-analyzer, persists segments
 
-- **Jellyfin Plugin**: .NET plugin for Jellyfin integration
-- **AI Services**: Containerized Python services for content analysis
-  - NSFW Detector: Nudity and adult content detection
-  - Scene Analyzer: Video scene detection and segmentation
-  - Content Classifier: Multi-category content classification
-- **Segment Storage**: JSON-based storage for filter timestamps
+AI Services (Docker)
+└── scene-analyzer  (port 3002)  ← TransNetV2 / FFmpeg scene detection + NSFW scoring
+```
 
-### Technology Stack
+### Storage
 
-- **Plugin**: .NET 8.0, C#
-- **AI Services**: Python 3.11, TensorFlow, OpenCV, FFmpeg
-- **Deployment**: Docker Compose
-- **Storage**: SQLite, JSON files
+Segments are stored as JSON files (one per media item) in the configured **Segment Directory**. Raw AI scores are stored; thresholds are applied dynamically at playback time based on the current sensitivity setting.
 
-## Development
+---
 
-See [copilot-prompts/main-project-plan.md](copilot-prompts/main-project-plan.md) for detailed development phases and plans.
+## Configuration Reference
 
-### Project Structure
+| Setting | Default | Description |
+|---------|---------|-------------|
+| AI Service Base URL | `http://localhost:3002` | Scene-analyzer endpoint |
+| Sensitivity | `moderate` | `strict` (0.45), `moderate` (0.65), `permissive` (0.85) |
+| Enable Nudity / Immodesty / Violence / Profanity | `true` | Per-category on/off |
+| Prefer Community Data | `true` | Reserved — no community source yet |
+| Enable OSD Feedback | `false` | Shows a toast when content is skipped |
+| Scene Detection Method | `transnetv2` | `transnetv2`, `ffmpeg`, or `sampling` |
+
+---
+
+## Known Limitations
+
+- **Mute action** is a no-op in the Jellyfin plugin API; it falls back to Skip.
+- **Profanity filtering** requires the audio pipeline (Whisper), which is not yet implemented.
+- **Per-user profiles** are not implemented; all users share global settings.
+- **Community data** (`PreferCommunityData`) has no backing source — setting is reserved.
+
+---
+
+## Project Structure
 
 ```
 PureFin-Plugin/
-├── Jellyfin.Plugin.ContentFilter/  # Main plugin code
-│   ├── Configuration/              # Plugin configuration
-│   ├── Web/                        # Web UI
-│   └── Plugin.cs                   # Main plugin class
-├── ai-services/                    # AI service containers
-│   ├── services/
-│   │   ├── nsfw-detector/         # NSFW detection service
-│   │   ├── scene-analyzer/        # Scene analysis service
-│   │   └── content-classifier/    # Content classification service
-│   └── docker-compose.yml
-├── docs/                           # Documentation
-└── copilot-prompts/               # Development planning documents
+├── Jellyfin.Plugin.ContentFilter/   # C# plugin
+│   ├── Configuration/               # PluginConfiguration + SensitivityThresholds
+│   ├── Models/                      # Segment, SegmentData
+│   ├── Services/                    # SegmentStore, PlaybackMonitor
+│   ├── Tasks/                       # AnalyzeLibraryTask
+│   ├── Web/                         # config.html
+│   ├── Plugin.cs
+│   └── PluginServiceRegistrator.cs
+├── ai-services/                     # Python scene-analyzer + Docker Compose
+├── docs/                            # Extended documentation
+└── build.yaml                       # Plugin manifest
 ```
 
-## Contributing
-
-Contributions are welcome! Please read the contributing guidelines and development documentation.
+---
 
 ## License
 
-See LICENSE file for details.
+See [LICENSE](LICENSE) for details.
 
 ## Acknowledgments
 
-- [Jellyfin](https://jellyfin.org/) - Free Software Media System
-- [MovieContentFilter](https://github.com/delight-im/MovieContentFilter) - Community segment data
-- [NSFW.js](https://github.com/infinitered/nsfwjs) - NSFW detection models
-- [FFmpeg](https://ffmpeg.org/) - Video processing
+- [Jellyfin](https://jellyfin.org/) — Free Software Media System
+- [FFmpeg](https://ffmpeg.org/) — Video processing
 
-## Support
-
-- [GitHub Issues](https://github.com/BarbellDwarf/PureFin-Plugin/issues)
-- [Documentation](docs/)
-- Community forums
-
-## Disclaimer
-
-This plugin is provided as-is for content filtering purposes. Users are responsible for compliance with applicable laws and terms of service. The accuracy of AI-powered content detection may vary.
