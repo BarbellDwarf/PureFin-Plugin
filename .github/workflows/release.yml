@@ -5,6 +5,10 @@ on:
     tags:
       - 'v*.*.*.*'
 
+concurrency:
+  group: gh-pages-manifest
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -44,6 +48,12 @@ jobs:
             sha256sum "$f" | awk '{print $1}' > "${f}.sha256"
           done
 
+      - name: Read checksum for manifest
+        id: checksum
+        run: |
+          MD5=$(cat *.zip.md5 | head -1)
+          echo "MD5=${MD5}" >> $GITHUB_OUTPUT
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -64,14 +74,12 @@ jobs:
       - name: Update repository manifest
         run: |
           mkdir -p gh-pages
-          # Generate/update repository.json using jprm
-          jprm repo add --plugin-url "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/$(ls *.zip | head -1)" gh-pages/repository.json || true
-          # If jprm repo add doesn't work in this context, generate manually
           python3 .github/scripts/generate_manifest.py \
             --version "${{ steps.get_version.outputs.VERSION }}" \
             --tag "${{ github.ref_name }}" \
             --repo "${{ github.repository }}" \
-            --output gh-pages/repository.json
+            --output gh-pages/repository.json \
+            --checksum "${{ steps.checksum.outputs.MD5 }}"
 
       - name: Commit updated manifest
         run: |
@@ -80,4 +88,5 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add repository.json
           git diff --staged --quiet || git commit -m "Update repository.json for ${{ github.ref_name }}"
+          git pull --rebase origin gh-pages
           git push

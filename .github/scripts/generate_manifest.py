@@ -29,17 +29,25 @@ def load_build_yaml(path="build.yaml"):
     }
 
 
-def generate_manifest(version, tag, repo, output, build_yaml="build.yaml"):
+def generate_manifest(version, tag, repo, output, build_yaml="build.yaml", checksum=""):
     meta = load_build_yaml(build_yaml)
     
-    source_url = f"https://github.com/{repo}/releases/download/{tag}/{meta['name'].replace(' ', '_')}_{version}.zip"
-    
+    zip_name = f"{meta['name'].replace(' ', '_')}_{version}.zip"
+    source_url = f"https://github.com/{repo}/releases/download/{tag}/{zip_name}"
+
+    # If checksum not provided, try to read from a .md5 file beside the zip
+    if not checksum:
+        md5_path = f"{zip_name}.md5"
+        if os.path.exists(md5_path):
+            with open(md5_path) as f:
+                checksum = f.read().strip()
+
     new_version_entry = {
         "version": version,
         "changelog": f"Release {tag}. See https://github.com/{repo}/releases/tag/{tag}",
         "targetAbi": meta.get("targetAbi", "10.9.0.0"),
         "sourceUrl": source_url,
-        "checksum": "",  # Will be filled by CI from .zip.md5 artifact
+        "checksum": checksum,
         "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     }
     
@@ -94,5 +102,6 @@ if __name__ == "__main__":
     parser.add_argument("--repo", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--build-yaml", default="build.yaml")
+    parser.add_argument("--checksum", default="")
     args = parser.parse_args()
-    generate_manifest(args.version, args.tag, args.repo, args.output, args.build_yaml)
+    generate_manifest(args.version, args.tag, args.repo, args.output, args.build_yaml, args.checksum)

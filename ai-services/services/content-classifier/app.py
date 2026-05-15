@@ -224,7 +224,7 @@ def classify_violence(image):
 
 
 def classify_nudity(image):
-    """Classify nudity levels in image.
+    """Classify nudity levels in image using CLIP zero-shot classification.
     
     Args:
         image: PIL Image object
@@ -232,19 +232,23 @@ def classify_nudity(image):
     Returns:
         Dictionary with nudity scores
     """
-    # Mock predictions for development
-    scores = {
-        'none': 0.85,
-        'partial_nudity': 0.10,
-        'full_nudity': 0.03,
-        'suggestive': 0.02
+    queries = [
+        "fully clothed person",
+        "suggestive or revealing clothing",
+        "partial nudity",
+        "full nudity",
+    ]
+    clip_scores = classify_with_clip(image, queries)
+    return {
+        'none': clip_scores.get("fully clothed person", 0.0),
+        'suggestive': clip_scores.get("suggestive or revealing clothing", 0.0),
+        'partial_nudity': clip_scores.get("partial nudity", 0.0),
+        'full_nudity': clip_scores.get("full nudity", 0.0),
     }
-    
-    return scores
 
 
 def classify_immodesty(image):
-    """Classify immodesty/clothing coverage in image.
+    """Classify immodesty/clothing coverage in image using CLIP zero-shot classification.
     
     Args:
         image: PIL Image object
@@ -252,16 +256,25 @@ def classify_immodesty(image):
     Returns:
         Dictionary with immodesty analysis
     """
-    # Mock analysis for development
+    queries = [
+        "person wearing modest clothing",
+        "person with exposed chest",
+        "person with exposed upper legs",
+        "person with exposed midriff",
+        "person with exposed back",
+        "person in swimwear or bikini",
+    ]
+    clip_scores = classify_with_clip(image, queries)
+    modesty_score = clip_scores.get("person wearing modest clothing", 0.0)
     return {
-        'modesty_score': 0.85,
+        'modesty_score': modesty_score,
         'exposed_areas': {
-            'chest_area': 0.05,
-            'upper_leg_area': 0.10,
-            'midriff_area': 0.02,
-            'back_area': 0.03
+            'chest_area': clip_scores.get("person with exposed chest", 0.0),
+            'upper_leg_area': clip_scores.get("person with exposed upper legs", 0.0),
+            'midriff_area': clip_scores.get("person with exposed midriff", 0.0),
+            'back_area': clip_scores.get("person with exposed back", 0.0),
         },
-        'clothing_type': 'casual'
+        'clothing_type': 'swimwear' if clip_scores.get("person in swimwear or bikini", 0.0) > 0.5 else 'unknown',
     }
 
 
