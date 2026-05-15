@@ -1,0 +1,32 @@
+{
+  "schema_version": "1.0",
+  "models": [
+    {
+      "service": "nsfw-detector",
+      "name": "nsfw-mobilenet",
+      "version": "1.0.0",
+      "filename": "nsfw_model.h5",
+      "sha256": "",
+      "min_plugin_version": "1.0.0",
+      "type": "keras"
+    },
+    {
+      "service": "content-classifier",
+      "name": "violence-classifier",
+      "version": "1.0.0",
+      "filename": "violence_model.h5",
+      "sha256": "",
+      "min_plugin_version": "1.0.0",
+      "type": "keras"
+    },
+    {
+      "service": "content-classifier",
+      "name": "clip-embedder",
+      "version": "1.0.0",
+      "filename": "clip_model",
+      "sha256": "",
+      "min_plugin_version": "1.0.0",
+      "type": "clip"
+    }
+  ]
+}

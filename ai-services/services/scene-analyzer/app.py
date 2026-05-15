@@ -248,7 +248,7 @@ def extract_scenes_ffmpeg(video_path, threshold=0.3):
         cmd = [
             'ffmpeg'] + gpu_args + [
             '-i', video_path,
-            '-vf', f'select=gt(scene\,{threshold}),showinfo',
+            '-vf', f'select=gt(scene\\,{threshold}),showinfo',
             '-f', 'null',
             '-'
         ]
@@ -257,7 +257,7 @@ def extract_scenes_ffmpeg(video_path, threshold=0.3):
         # Fallback: retry without GPU if failed
         if result.returncode != 0 and gpu_args:
             logger.warning("FFmpeg scene detection failed with GPU args, retrying on CPU...")
-            cmd_fallback = ['ffmpeg', '-i', video_path, '-vf', f'select=gt(scene\,{threshold}),showinfo', '-f', 'null', '-']
+            cmd_fallback = ['ffmpeg', '-i', video_path, '-vf', f'select=gt(scene\\,{threshold}),showinfo', '-f', 'null', '-']
             result = subprocess.run(cmd_fallback, capture_output=True, text=True, check=False)
         logger.info("FFmpeg scene detection complete")
         
@@ -379,6 +379,31 @@ def health_check():
     })
 
 
+@app.route('/ready', methods=['GET'])
+def ready():
+    """Readiness endpoint — checks that all downstream services are ready."""
+    try:
+        nsfw_resp = requests.get(f"{NSFW_DETECTOR_URL}/ready", timeout=5)
+        classifier_resp = requests.get(f"{CONTENT_CLASSIFIER_URL}/ready", timeout=5)
+
+        if nsfw_resp.status_code == 200 and classifier_resp.status_code == 200:
+            return jsonify({'status': 'ready', 'models_loaded': True})
+
+        failed = 'nsfw-detector' if nsfw_resp.status_code != 200 else 'content-classifier'
+        return jsonify({
+            'status': 'degraded',
+            'models_loaded': False,
+            'reason': f'Downstream service not ready: {failed}'
+        }), 503
+
+    except requests.RequestException as e:
+        return jsonify({
+            'status': 'degraded',
+            'models_loaded': False,
+            'reason': f'Could not reach downstream services: {e}'
+        }), 503
+
+
 @app.route('/analyze', methods=['POST'])
 @REQUEST_DURATION.time()
 def analyze_video():
@@ -462,6 +487,13 @@ def analyze_video():
                             nsfw_response = session.post(f"{NSFW_DETECTOR_URL}/analyze", 
                                                          files=files, timeout=60)
                         
+                        if nsfw_response.status_code == 503:
+                            ERROR_COUNT.inc()
+                            return jsonify({
+                                'error': 'Downstream service not ready',
+                                'service': 'nsfw-detector',
+                                'degraded': True
+                            }), 503
                         if nsfw_response.status_code == 200:
                             nsfw_data = nsfw_response.json()
                             nudity_scores.append(nsfw_data.get('nudity', 0))
@@ -473,6 +505,13 @@ def analyze_video():
                             violence_response = session.post(f"{CONTENT_CLASSIFIER_URL}/classify", 
                                                             files=files, timeout=60)
                         
+                        if violence_response.status_code == 503:
+                            ERROR_COUNT.inc()
+                            return jsonify({
+                                'error': 'Downstream service not ready',
+                                'service': 'content-classifier',
+                                'degraded': True
+                            }), 503
                         if violence_response.status_code == 200:
                             violence_data = violence_response.json()
                             # Handle both old format (single number) and new format (dict with categories)
@@ -531,9 +570,14 @@ def analyze_video():
         
         return jsonify({
             'success': True,
+            'schema_version': '1.0',
             'video_path': video_path,
             'scene_count': len(scenes),
             'scenes': results,
+            'model_versions': {
+                'nsfw-mobilenet': '1.0.0',
+                'violence-classifier': '1.0.0'
+            },
             'timestamp': datetime.now().isoformat()
         })
         

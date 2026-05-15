@@ -49,6 +49,7 @@ ERROR_COUNT = Counter('classifier_errors_total', 'Total classification errors')
 MODEL_PATH = os.getenv('MODEL_PATH', '/app/models')
 USE_GPU = os.getenv('USE_GPU', '0') == '1'
 models_loaded = False
+_models_ready = False
 violence_model = None
 clip_model = None
 clip_processor = None
@@ -80,9 +81,10 @@ NUDITY_CATEGORIES = ['none', 'partial_nudity', 'full_nudity', 'suggestive']
 
 def load_models():
     """Load classification models."""
-    global models_loaded, violence_model, clip_model, clip_processor
+    global models_loaded, violence_model, clip_model, clip_processor, _models_ready
     try:
         models_loaded = False
+        _models_ready = False
         
         # Load violence detection model
         violence_path = os.path.join(MODEL_PATH, 'violence', 'violence_model.h5')
@@ -148,18 +150,20 @@ def load_models():
         
         # Set loaded flag if at least one model is available
         models_loaded = (violence_model is not None) or (clip_model is not None)
+        _models_ready = models_loaded
         
         if models_loaded:
             logger.info("Content classifier models loaded successfully")
         else:
-            logger.warning("No real models loaded, will use mock predictions")
+            logger.warning("No models could be loaded; service will return 503 for inference requests")
         
-        return True
+        return models_loaded
         
     except Exception as e:
         logger.error("Error loading models: %s", e)
         models_loaded = False
-        return True  # Don't fail startup
+        _models_ready = False
+        return False
 
 
 def classify_violence(image):
@@ -173,82 +177,50 @@ def classify_violence(image):
     """
     global violence_model
     
+    if violence_model is None:
+        raise RuntimeError("Violence model is not loaded")
+    
     try:
-        # Use real violence model if available
-        if violence_model is not None:
-            try:
-                # Preprocess image for violence model
-                img = image.convert('RGB')
-                img = img.resize((224, 224))
-                img_array = np.array(img) / 255.0
-                input_batch = np.expand_dims(img_array, axis=0)
-                
-                # Force CPU inference to avoid GPU JIT compilation issues
-                with tf.device('/CPU:0'):
-                    # Get violence prediction (binary classification)
-                    violence_prob = violence_model.predict(input_batch, verbose=0)[0][0]
-                
-                # Create detailed category scores based on overall violence score
-                # Higher violence score increases likelihood of specific violence types
-                base_multiplier = float(violence_prob)
-                scores = {
-                    'blood': min(base_multiplier * 0.6, 0.95),
-                    'weapons': min(base_multiplier * 0.4, 0.90),
-                    'fighting': min(base_multiplier * 0.8, 0.95),
-                    'explosions': min(base_multiplier * 0.3, 0.85),
-                    'death': min(base_multiplier * 0.2, 0.80),
-                    'torture': min(base_multiplier * 0.1, 0.70),
-                    'general_violence': float(violence_prob)
-                }
-                
-                logger.debug("Real violence model prediction (CPU): %.3f", violence_prob)
-                
-            except Exception as model_error:
-                logger.error("Violence model prediction failed: %s", model_error)
-                # Fallback to mock predictions
-                scores = {
-                    'blood': 0.02,
-                    'weapons': 0.01,
-                    'fighting': 0.03,
-                    'explosions': 0.01,
-                    'death': 0.00,
-                    'torture': 0.00,
-                    'general_violence': 0.05
-                }
-        else:
-            # Mock predictions for development/fallback
-            scores = {
-                'blood': 0.02,
-                'weapons': 0.01,
-                'fighting': 0.03,
-                'explosions': 0.01,
-                'death': 0.00,
-                'torture': 0.00,
-                'general_violence': 0.05
-            }
-            logger.debug("Using mock violence predictions - no real model loaded")
+        # Preprocess image for violence model
+        img = image.convert('RGB')
+        img = img.resize((224, 224))
+        img_array = np.array(img) / 255.0
+        input_batch = np.expand_dims(img_array, axis=0)
         
-        overall_score = max(scores.values())
-        primary_type = max(scores, key=scores.get)
+        # Force CPU inference to avoid GPU JIT compilation issues
+        with tf.device('/CPU:0'):
+            # Get violence prediction (binary classification)
+            violence_prob = violence_model.predict(input_batch, verbose=0)[0][0]
         
-        return {
-            'overall_violence_score': overall_score,
-            'category_scores': scores,
-            'primary_violence_type': primary_type
+        # Create detailed category scores based on overall violence score
+        # Higher violence score increases likelihood of specific violence types
+        base_multiplier = float(violence_prob)
+        scores = {
+            'blood': min(base_multiplier * 0.6, 0.95),
+            'weapons': min(base_multiplier * 0.4, 0.90),
+            'fighting': min(base_multiplier * 0.8, 0.95),
+            'explosions': min(base_multiplier * 0.3, 0.85),
+            'death': min(base_multiplier * 0.2, 0.80),
+            'torture': min(base_multiplier * 0.1, 0.70),
+            'general_violence': float(violence_prob)
         }
         
-    except Exception as e:
-        logger.error("Error in violence classification: %s", e)
-        # Return safe fallback
-        return {
-            'overall_violence_score': 0.05,
-            'category_scores': {
-                'blood': 0.01, 'weapons': 0.01, 'fighting': 0.01,
-                'explosions': 0.01, 'death': 0.00, 'torture': 0.00,
-                'general_violence': 0.05
-            },
-            'primary_violence_type': 'general_violence'
-        }
+        logger.debug("Real violence model prediction (CPU): %.3f", violence_prob)
+        
+    except RuntimeError:
+        raise
+    except Exception as model_error:
+        logger.error("Violence model prediction failed: %s", model_error)
+        raise RuntimeError(f"Violence model prediction failed: {model_error}") from model_error
+    
+    overall_score = max(scores.values())
+    primary_type = max(scores, key=scores.get)
+    
+    return {
+        'overall_violence_score': overall_score,
+        'category_scores': scores,
+        'primary_violence_type': primary_type
+    }
 
 
 def classify_nudity(image):
@@ -305,38 +277,39 @@ def classify_with_clip(image, text_queries):
     """
     global clip_model, clip_processor, clip_device
     
+    if clip_model is None or clip_processor is None:
+        raise RuntimeError("CLIP model is not loaded")
+    
     try:
-        if clip_model is not None and clip_processor is not None:
-            # Process inputs
-            inputs = clip_processor(text=text_queries, images=image, return_tensors="pt", padding=True)
-            # Send tensors to target device
-            try:
-                import torch
-                if clip_device == "cuda" and torch.cuda.is_available():
-                    inputs = {k: v.to(clip_device) if hasattr(v, 'to') else v for k, v in inputs.items()}
-            except Exception as e:
-                logger.debug("Could not move CLIP inputs to device: %s", e)
-            
-            # Get predictions
+        # Process inputs
+        inputs = clip_processor(text=text_queries, images=image, return_tensors="pt", padding=True)
+        # Send tensors to target device
+        try:
             import torch
-            with torch.no_grad():
-                outputs = clip_model(**inputs)
-            logits_per_image = outputs.logits_per_image
-            probs = logits_per_image.softmax(dim=1)
-            
-            # Convert to dictionary
-            results = {}
-            for i, query in enumerate(text_queries):
-                results[query] = float(probs[0][i])
-            
-            return results
-        else:
-            # Return mock scores if CLIP not available
-            return {query: 0.1 for query in text_queries}
-            
+            if clip_device == "cuda" and torch.cuda.is_available():
+                inputs = {k: v.to(clip_device) if hasattr(v, 'to') else v for k, v in inputs.items()}
+        except Exception as e:
+            logger.debug("Could not move CLIP inputs to device: %s", e)
+        
+        # Get predictions
+        import torch
+        with torch.no_grad():
+            outputs = clip_model(**inputs)
+        logits_per_image = outputs.logits_per_image
+        probs = logits_per_image.softmax(dim=1)
+        
+        # Convert to dictionary
+        results = {}
+        for i, query in enumerate(text_queries):
+            results[query] = float(probs[0][i])
+        
+        return results
+        
+    except RuntimeError:
+        raise
     except Exception as e:
         logger.error("CLIP classification failed: %s", e)
-        return {query: 0.1 for query in text_queries}
+        raise RuntimeError(f"CLIP classification failed: {e}") from e
 
 
 def classify_content(image_data):
@@ -418,12 +391,25 @@ def health_check():
     return jsonify({
         'status': 'healthy' if models_loaded else 'degraded',
         'models_loaded': models_loaded,
+        'ready': _models_ready,
         'gpu_available': gpu_available,
         'gpu_enabled': USE_GPU,
         'clip_device': clip_device,
         'timestamp': datetime.now().isoformat(),
         'service': 'content-classifier'
     })
+
+
+@app.route('/ready', methods=['GET'])
+def ready():
+    """Readiness endpoint — returns 200 only when models are loaded and inference is possible."""
+    if _models_ready:
+        return jsonify({'status': 'ready', 'models_loaded': True})
+    return jsonify({
+        'status': 'degraded',
+        'models_loaded': False,
+        'reason': 'No classification models loaded'
+    }), 503
 
 
 @app.route('/classify', methods=['POST'])
@@ -434,9 +420,9 @@ def classify():
     
     try:
         # Check if models are loaded
-        if not models_loaded:
+        if not _models_ready:
             ERROR_COUNT.inc()
-            return jsonify({'error': 'Models not loaded'}), 503
+            return jsonify({'error': 'Models not loaded', 'degraded': True, 'service': 'content-classifier'}), 503
         
         # Get image from request
         if 'image' not in request.files:

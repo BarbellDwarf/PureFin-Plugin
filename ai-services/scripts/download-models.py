@@ -209,106 +209,21 @@ print("CLIP model downloaded and cached successfully!")
 
 
 def create_violence_model():
-    """Create a custom violence detection model using transfer learning."""
-    try:
-        logger.info("Creating custom violence detection model...")
-        
-        # Import TensorFlow
-        import tensorflow as tf
-        
-        # Create violence model directory
-        violence_dir = MODELS_DIR / "violence"
-        violence_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Create a simple CNN model for violence detection
-        # Based on MobileNetV2 for efficiency with GPU acceleration
-        base_model = tf.keras.applications.MobileNetV2(
-            input_shape=(224, 224, 3),
-            include_top=False,
-            weights='imagenet'
-        )
-        base_model.trainable = False  # Freeze base model
-        
-        model = tf.keras.Sequential([
-            base_model,
-            tf.keras.layers.GlobalAveragePooling2D(),
-            tf.keras.layers.Dense(128, activation='relu'),
-            tf.keras.layers.Dropout(0.2),
-            tf.keras.layers.Dense(1, activation='sigmoid')  # Binary classification
-        ])
-        
-        model.compile(
-            optimizer='adam',
-            loss='binary_crossentropy',
-            metrics=['accuracy']
-        )
-        
-        # Save the model
-        model_path = violence_dir / "violence_model.h5"
-        model.save(model_path)
-        
-        logger.info(f"Violence detection model created and saved to {model_path}")
-        logger.info("Note: This is a pre-trained base model that will learn from actual usage")
-        
-        return True
-        
-    except Exception as e:
-        logger.error(f"Error creating violence model: {e}")
-        logger.info("Tip: Ensure TensorFlow is installed: pip install tensorflow")
-        return False
+    """Placeholder — real model must be provided; generating random weights is not supported."""
+    logger.error(
+        "Violence model not found and no real model is available for download. "
+        "Please provide a trained violence_model.h5 in the models/violence/ directory."
+    )
+    return False
 
 
 def create_nsfw_model():
-    """Create a custom NSFW detection model using transfer learning."""
-    try:
-        logger.info("Creating custom NSFW detection model...")
-        
-        # Import TensorFlow
-        import tensorflow as tf
-        
-        # Create NSFW model directory
-        nsfw_dir = MODELS_DIR / "nsfw"
-        nsfw_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Create a multi-class CNN model for NSFW detection
-        # Based on MobileNetV2 for efficiency
-        base_model = tf.keras.applications.MobileNetV2(
-            input_shape=(224, 224, 3),
-            include_top=False,
-            weights='imagenet'
-        )
-        base_model.trainable = False  # Freeze base model
-        
-        # 5 classes: drawings, hentai, neutral, porn, sexy
-        model = tf.keras.Sequential([
-            base_model,
-            tf.keras.layers.GlobalAveragePooling2D(),
-            tf.keras.layers.Dense(128, activation='relu'),
-            tf.keras.layers.Dropout(0.3),
-            tf.keras.layers.Dense(64, activation='relu'),
-            tf.keras.layers.Dropout(0.2),
-            tf.keras.layers.Dense(5, activation='softmax')  # 5 categories
-        ])
-        
-        model.compile(
-            optimizer='adam',
-            loss='categorical_crossentropy',
-            metrics=['accuracy']
-        )
-        
-        # Save the model
-        model_path = nsfw_dir / "nsfw_model.h5"
-        model.save(model_path)
-        
-        logger.info(f"NSFW detection model created and saved to {model_path}")
-        logger.info("Note: This is a pre-trained base model with randomized classification layers")
-        
-        return True
-        
-    except Exception as e:
-        logger.error(f"Error creating NSFW model: {e}")
-        logger.info("Tip: Ensure TensorFlow is installed: pip install tensorflow")
-        return False
+    """Placeholder — real model must be provided; generating random weights is not supported."""
+    logger.error(
+        "NSFW model not found and no real model is available for download. "
+        "Please provide a trained nsfw_model.h5 in the models/nsfw/ directory."
+    )
+    return False
 
 
 def verify_model_files(model_key: str, config: dict) -> bool:
@@ -565,7 +480,9 @@ def main():
         return 0
     else:
         logger.error(f"⚠️  {total_count - success_count} models failed to download")
-        logger.info("Services will fall back to mock predictions for missing models")
+        logger.error(
+            "Provide real trained model files — AI services will not start in inference mode without them."
+        )
         return 1
 
 

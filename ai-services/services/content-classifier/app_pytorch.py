@@ -28,6 +28,7 @@ ERROR_COUNT = Counter('classifier_errors_total', 'Total classification errors')
 MODEL_PATH = os.getenv('MODEL_PATH', '/app/models')
 USE_GPU = os.getenv('USE_GPU', '0') == '1'
 models_loaded = False
+_models_ready = False
 violence_model = None
 clip_model = None
 clip_processor = None
@@ -76,9 +77,10 @@ class ViolenceModelPyTorch(nn.Module):
 
 def load_models():
     """Load classification models."""
-    global models_loaded, violence_model, clip_model, clip_processor
+    global models_loaded, violence_model, clip_model, clip_processor, _models_ready
     try:
         models_loaded = False
+        _models_ready = False
         
         # Load violence detection model (PyTorch)
         violence_path_pth = os.path.join(MODEL_PATH, 'violence', 'violence_model.pth')
@@ -114,7 +116,7 @@ def load_models():
                 logger.error(f"Failed to convert Keras model: {result.stderr}")
                 raise RuntimeError("Model conversion failed")
         else:
-            logger.warning("Violence model not found, will use mock predictions")
+            logger.warning("Violence model not found at expected paths")
         
         # Load CLIP model for nudity/immodesty detection
         clip_cache_dir = os.path.join(MODEL_PATH, 'clip')
@@ -135,11 +137,13 @@ def load_models():
             logger.info(f"Downloaded and cached CLIP model on {device}")
         
         models_loaded = True
+        _models_ready = True
         logger.info("Content classifier models loaded successfully")
         
     except Exception as e:
         logger.error(f"Error loading models: {e}", exc_info=True)
-        raise
+        models_loaded = False
+        _models_ready = False
 
 
 # Image preprocessing for violence model
@@ -160,20 +164,10 @@ def classify_violence(image):
     Returns:
         dict: Violence classification scores
     """
+    if violence_model is None:
+        raise RuntimeError("Violence model is not loaded")
+    
     try:
-        if violence_model is None:
-            # Return mock scores if model not loaded
-            logger.warning("Violence model not loaded, returning mock scores")
-            return {
-                'blood': 0.02,
-                'weapons': 0.01,
-                'fighting': 0.03,
-                'explosions': 0.01,
-                'death': 0.00,
-                'torture': 0.00,
-                'general_violence': 0.05
-            }
-        
         # Preprocess image
         img_tensor = violence_transform(image.convert('RGB')).unsqueeze(0).to(device)
         
@@ -196,18 +190,11 @@ def classify_violence(image):
         logger.debug("Violence model prediction (PyTorch GPU): %.3f", violence_prob)
         return scores
         
+    except RuntimeError:
+        raise
     except Exception as e:
         logger.error("Violence model prediction failed: %s", e, exc_info=True)
-        # Return safe fallback scores
-        return {
-            'blood': 0.02,
-            'weapons': 0.01,
-            'fighting': 0.03,
-            'explosions': 0.01,
-            'death': 0.00,
-            'torture': 0.00,
-            'general_violence': 0.05
-        }
+        raise RuntimeError(f"Violence model prediction failed: {e}") from e
 
 
 def classify_nudity_immodesty(image):
@@ -220,10 +207,10 @@ def classify_nudity_immodesty(image):
     Returns:
         tuple: (nudity_score, immodesty_score)
     """
+    if clip_model is None or clip_processor is None:
+        raise RuntimeError("CLIP model is not loaded")
+    
     try:
-        if clip_model is None or clip_processor is None:
-            return 0.1, 0.1
-        
         # Prepare prompts
         nudity_prompts = [
             "a photo with no nudity or exposed body parts",
@@ -265,9 +252,11 @@ def classify_nudity_immodesty(image):
         
         return nudity_score, immodesty_score
         
+    except RuntimeError:
+        raise
     except Exception as e:
         logger.error("CLIP model prediction failed: %s", e, exc_info=True)
-        return 0.1, 0.1
+        raise RuntimeError(f"CLIP model prediction failed: {e}") from e
 
 
 @app.route('/health', methods=['GET'])
@@ -276,10 +265,23 @@ def health():
     return jsonify({
         'status': 'healthy',
         'models_loaded': models_loaded,
+        'ready': _models_ready,
         'device': str(device),
         'cuda_available': torch.cuda.is_available(),
         'timestamp': datetime.utcnow().isoformat()
     })
+
+
+@app.route('/ready', methods=['GET'])
+def ready():
+    """Readiness endpoint — returns 200 only when models are loaded and inference is possible."""
+    if _models_ready:
+        return jsonify({'status': 'ready', 'models_loaded': True})
+    return jsonify({
+        'status': 'degraded',
+        'models_loaded': False,
+        'reason': 'Classification models not loaded'
+    }), 503
 
 
 @app.route('/classify', methods=['POST'])
@@ -288,6 +290,10 @@ def classify():
     REQUEST_COUNT.inc()
     
     try:
+        if not _models_ready:
+            ERROR_COUNT.inc()
+            return jsonify({'error': 'Models not loaded', 'degraded': True, 'service': 'content-classifier'}), 503
+
         with REQUEST_DURATION.time():
             # Get image from request
             if 'image' not in request.files:

@@ -2,6 +2,22 @@
 
 This directory contains the AI services that power content analysis for the PureFin Content Filter Jellyfin plugin.
 
+## ⚠️ Real Model Files Required
+
+AI services will **not** perform inference without trained model weight files in the `models/` directory.
+Services start in a degraded state when models are missing — all `/analyze` and `/classify` endpoints
+return **HTTP 503** until real models are present.
+
+```
+ai-services/
+└── models/
+    ├── nsfw/nsfw_model.h5          ← required for NSFW detection
+    ├── violence/violence_model.h5  ← required for violence classification
+    └── clip/clip-vit-base-patch32/ ← required for CLIP-based classification
+```
+
+See `models/model-manifest.json` for the canonical list of required models.
+
 ## Quick Start
 
 1. **Configure your paths** - See [SETUP.md](SETUP.md) for detailed instructions
@@ -169,6 +185,11 @@ Test each service independently:
 curl http://localhost:3002/health  # Scene Analyzer
 curl http://localhost:3001/health  # NSFW Detector
 curl http://localhost:3004/health  # Content Classifier
+
+# Readiness checks — returns 200 when models are loaded, 503 when not
+curl http://localhost:3001/ready   # NSFW Detector
+curl http://localhost:3004/ready   # Content Classifier
+curl http://localhost:3002/ready   # Scene Analyzer (checks all downstream services)
 
 # Analyze a video (requires media path mounted)
 curl -X POST http://localhost:3002/analyze \

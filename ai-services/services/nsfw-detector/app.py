@@ -25,6 +25,7 @@ MODEL_PATH = os.getenv('MODEL_PATH', '/app/models')
 USE_GPU = os.getenv('USE_GPU', '0') == '1'
 model_loaded = False
 nsfw_model = None
+_models_ready = False
 
 # GPU detection
 gpu_available = False
@@ -51,7 +52,7 @@ CATEGORIES = ['drawings', 'hentai', 'neutral', 'porn', 'sexy']
 
 def load_model():
     """Load NSFW detection model."""
-    global model_loaded, nsfw_model
+    global model_loaded, nsfw_model, _models_ready
     try:
         # Try loading H5 model first (our custom model)
         h5_path = os.path.join(MODEL_PATH, 'nsfw', 'nsfw_model.h5')
@@ -65,6 +66,7 @@ def load_model():
                 nsfw_model = tf.keras.models.load_model(h5_path)
                 logger.info("Successfully loaded NSFW H5 model")
                 model_loaded = True
+                _models_ready = True
                 
                 # Test prediction to ensure model works
                 test_input = tf.random.normal((1, 224, 224, 3))
@@ -82,6 +84,7 @@ def load_model():
                 nsfw_model = tf.keras.models.load_model(savedmodel_path)
                 logger.info("Successfully loaded NSFW TensorFlow SavedModel")
                 model_loaded = True
+                _models_ready = True
                 
                 # Test prediction to ensure model works
                 test_input = tf.random.normal((1, 224, 224, 3))
@@ -94,17 +97,16 @@ def load_model():
                 logger.error(f"SavedModel loading failed: {tf_error}")
         else:
             logger.warning(f"No NSFW model found at {h5_path} or {savedmodel_path}")
-            logger.info("Will use mock predictions until models are downloaded")
         
-        # If no model loaded, set flag but don't fail
         model_loaded = False
-        logger.info("No real model available, using mock predictions")
-        return True
+        _models_ready = False
+        return False
         
     except Exception as e:
         logger.error(f"Error loading model: {e}")
         model_loaded = False
-        return True  # Don't fail startup
+        _models_ready = False
+        return False
 
 
 def analyze_image(image_data):
@@ -124,25 +126,15 @@ def analyze_image(image_data):
         img = img.resize((224, 224))
         img_array = np.array(img) / 255.0
         
-        # Use real model if available
-        if model_loaded and nsfw_model is not None:
-            try:
-                # Prepare input for model
-                input_batch = np.expand_dims(img_array, axis=0)
-                
-                # Get model prediction
-                predictions = nsfw_model.predict(input_batch, verbose=0)[0]
-                logger.debug(f"Real NSFW model predictions: {predictions}")
-                
-            except Exception as model_error:
-                logger.error(f"Model prediction failed, using mock data: {model_error}")
-                # Fallback to mock predictions
-                predictions = [0.05, 0.02, 0.85, 0.03, 0.05]  # Mostly neutral
-        else:
-            # Mock predictions for development/fallback
-            predictions = [0.05, 0.02, 0.85, 0.03, 0.05]  # Mostly neutral
-            if not model_loaded:
-                logger.debug("Using mock predictions - no real model loaded")
+        if not model_loaded or nsfw_model is None:
+            raise RuntimeError("NSFW model is not loaded")
+        
+        # Prepare input for model
+        input_batch = np.expand_dims(img_array, axis=0)
+        
+        # Get model prediction
+        predictions = nsfw_model.predict(input_batch, verbose=0)[0]
+        logger.debug(f"Real NSFW model predictions: {predictions}")
         
         results = {
             category: float(score) 
@@ -162,11 +154,24 @@ def health_check():
     return jsonify({
         'status': 'healthy' if model_loaded else 'degraded',
         'model_loaded': model_loaded,
+        'ready': _models_ready,
         'gpu_available': gpu_available,
         'gpu_enabled': USE_GPU,
         'timestamp': datetime.now().isoformat(),
         'service': 'nsfw-detector'
     })
+
+
+@app.route('/ready', methods=['GET'])
+def ready():
+    """Readiness endpoint — returns 200 only when the model is loaded and inference is possible."""
+    if _models_ready:
+        return jsonify({'status': 'ready', 'models_loaded': True})
+    return jsonify({
+        'status': 'degraded',
+        'models_loaded': False,
+        'reason': 'NSFW model not loaded'
+    }), 503
 
 
 @app.route('/analyze', methods=['POST'])
@@ -177,9 +182,9 @@ def analyze():
     
     try:
         # Check if model is loaded
-        if not model_loaded:
+        if not _models_ready:
             ERROR_COUNT.inc()
-            return jsonify({'error': 'Model not loaded'}), 503
+            return jsonify({'error': 'Model not loaded', 'degraded': True}), 503
         
         # Get image from request
         if 'image' not in request.files:
