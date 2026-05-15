@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [1.0.1.0] - 2025-01-01
+### Fixed
+- Plugin DI registration: implemented `IPluginServiceRegistrator` so plugin services now start correctly in Jellyfin
+- Upgraded target framework from `net6.0` to `net8.0` to match Jellyfin's requirements
+- Added `ExcludeAssets=runtime` to Jellyfin package references to prevent runtime conflicts
+
+### Added
+- Sensitivity threshold presets (Low/Medium/High) wired to actual score thresholds
+- `/ready` endpoint on all AI services distinguishing model-loaded state from service-alive
+- `model-manifest.json` schema for versioned model declarations
+- `schemas/analysis-response.json` for stable versioned API responses
+- GitHub Actions CI (`build.yml`, `release.yml`) for automated builds and releases
+- Plugin repository manifest publishing via gh-pages
+- Versioning policy documentation
+- Rollout and operations guide
+
+### Changed
+- `mute` action now explicitly falls back to `skip` with a log warning (was a silent no-op)
+- `PreferCommunityData` now logs a warning when set (was silently ignored)
+- AI services now return HTTP 503 instead of random/placeholder predictions when models not loaded
+- docker-compose.yml added to repo (was only a template)
+- Port reference docs corrected: scene-analyzer=3002, nsfw-detector=3001, content-classifier=3004
+
 ## [1.0.0] - 2024-01-15
 
 ### Added
@@ -18,23 +43,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Real-time playback monitoring and filtering
 - Automatic skip/mute actions during playback
 - Configurable sensitivity levels (strict, moderate, permissive)
-- Per-user filtering preferences
 - Scheduled library analysis task
 - In-memory segment caching with JSON file persistence
-- Comprehensive documentation:
-  - Installation guide
-  - Configuration guide
-  - User guide
-  - Developer guide
-  - API documentation
-  - FAQ
-  - Troubleshooting guide
 - Docker Compose orchestration for AI services
-- Prometheus metrics for monitoring
 - Health check endpoints for all services
 
 ### Technical Details
-- .NET 8.0 plugin for Jellyfin 10.8.0+
+- .NET 8.0 plugin for Jellyfin 10.9.0+
 - Python 3.11 AI services with Flask
 - TensorFlow for model inference
 - FFmpeg for video processing
@@ -42,42 +57,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - JSON-based segment storage
 
 ### Known Limitations
-- AI models use mock predictions (pending real model integration)
+- AI models require real model files (placeholder/random model generation is disabled)
 - No database integration (using JSON files for persistence)
 - Limited client support for mute actions
 - Manual segment editing not yet implemented
 - Community data integration not yet implemented
-
-## [Unreleased]
-
-### Planned Features
-- Real AI model integration (NSFW.js, custom models)
-- MovieContentFilter API integration
-- SQLite database for better performance
-- Manual segment editing UI
-- Improved accuracy with real models
-- Audio profanity detection with Whisper
-- Batch processing improvements
-- Advanced filtering options
-- Statistics and reporting
-- Import/export segment data
-- Multi-language support
-
-### Planned Improvements
-- Enhanced playback monitoring with event subscriptions
-- Better client compatibility
-- Performance optimizations
-- Automated testing suite
-- CI/CD pipeline
-- Model management and updates
-- Confidence calibration
-- False positive/negative reporting
-
-## Version History
-
-### Pre-releases
-
-Development versions and planning documents created during project inception.
 
 ## Support
 
@@ -88,3 +72,4 @@ For issues, questions, or contributions, please visit:
 ## License
 
 See LICENSE file for details.
+

@@ -2,89 +2,95 @@
 
 ## Prerequisites
 
-- **Jellyfin Server**: Version 10.8.0 or higher
-- **Docker Engine**: Version 24.0 or higher
+- **Jellyfin Server**: 10.9 or higher
+- **Docker Engine**: 24.0 or higher (for AI services)
+- **Python**: 3.10+ (on the host running AI services)
 - **System Requirements**:
-  - 8GB+ RAM (16GB recommended)
-  - 100GB+ free disk space
+  - 8 GB+ RAM (16 GB recommended)
   - Optional: NVIDIA GPU with drivers + NVIDIA Container Toolkit for GPU acceleration
 
-## Installation Steps
+---
 
-### Step 1: Deploy AI Services
+## Method 1: Via Jellyfin Plugin Repository (Preferred)
 
-1. Clone the repository:
+This is the recommended approach for production use.
+
+1. In Jellyfin, go to **Dashboard → Plugins → Repositories**.
+2. Click **+** to add a new repository.
+3. Enter the URL:
+   ```
+   https://barbellDwarf.github.io/PureFin-Plugin/repository.json
+   ```
+4. Click **Save**.
+5. Go to **Catalog**, find **PureFin**, and click **Install**.
+6. Restart Jellyfin when prompted.
+
+---
+
+## Method 2: Manual Install (Development)
+
+Use this method when working from source or testing a pre-release build.
+
+1. Download the plugin ZIP from [GitHub Releases](https://github.com/BarbellDwarf/PureFin-Plugin/releases).
+2. Extract the ZIP to your Jellyfin `plugins/` folder:
+   - **Linux**: `/var/lib/jellyfin/plugins/`
+   - **Windows**: `C:\ProgramData\Jellyfin\Server\plugins\`
+   - **Docker**: the path mapped to `/config/plugins/`
+3. Restart Jellyfin.
+
+---
+
+## AI Services Setup
+
+The plugin calls a local scene-analyzer service. All AI services run in Docker.
+
+### Start Services
+
 ```bash
-git clone https://github.com/BarbellDwarf/PureFin-Plugin.git
-cd PureFin-Plugin/ai-services
-```
-
-2. Start the services using Docker Compose:
-```bash
+cd ai-services
 docker compose up -d
 ```
 
-3. Verify services are running:
+### Wait for Readiness
+
+Check each service is ready before running library analysis:
+
 ```bash
-docker compose ps
+curl http://localhost:3001/ready   # nsfw-detector
+curl http://localhost:3004/ready   # content-classifier
+curl http://localhost:3002/ready   # scene-analyzer (orchestrator)
 ```
 
-4. Check health endpoints:
-```bash
-curl http://localhost:3001/health  # NSFW Detector
-curl http://localhost:3002/health  # Scene Analyzer
-curl http://localhost:3003/health  # Content Classifier
+Expected response when ready:
+```json
+{"status": "ready", "models_loaded": true}
 ```
 
-### Step 2: Install Jellyfin Plugin
+> **Note:** Placeholder/random model generation has been disabled. Services return HTTP 503 until real model files are provided in the paths defined in `ai-services/models/model-manifest.json`. See [Troubleshooting](./troubleshooting.md) for details.
 
-1. Build the plugin:
-```bash
-cd ../Jellyfin.Plugin.ContentFilter
-dotnet build --configuration Release
-```
+### Port Reference
 
-2. Copy the plugin DLL to your Jellyfin plugins directory:
+| Service | Host Port | Purpose |
+|---------|-----------|---------|
+| scene-analyzer | 3002 | Orchestrator — called directly by the plugin |
+| nsfw-detector | 3001 | NSFW/nudity detection |
+| content-classifier | 3004 | Violence/content classification |
 
-**Linux:**
-```bash
-sudo mkdir -p /var/lib/jellyfin/plugins/ContentFilter
-sudo cp bin/Release/net8.0/Jellyfin.Plugin.ContentFilter.dll /var/lib/jellyfin/plugins/ContentFilter/
-```
+---
 
-**Docker (modify your docker-compose.yml):**
-```yaml
-volumes:
-  - ./plugins:/config/plugins
-```
+## Plugin Configuration
 
-Then copy:
-```bash
-mkdir -p ./plugins/ContentFilter
-cp bin/Release/net8.0/Jellyfin.Plugin.ContentFilter.dll ./plugins/ContentFilter/
-```
+After installation, configure the plugin:
 
-**Windows:**
-```powershell
-Copy-Item bin\Release\net8.0\Jellyfin.Plugin.ContentFilter.dll "C:\ProgramData\Jellyfin\Server\plugins\ContentFilter\"
-```
+1. Go to **Dashboard → Plugins → PureFin → Settings**.
+2. Set `AiServiceBaseUrl` to `http://localhost:3002` (this is the default).
+3. Adjust sensitivity and category toggles as needed.
+4. Go to **Dashboard → Scheduled Tasks** and run **Analyze Content Library** for initial analysis.
 
-3. Restart Jellyfin
-
-### Step 3: Configure Plugin
-
-1. Access Jellyfin web interface
-2. Navigate to **Dashboard** → **Plugins** → **Content Filter**
-3. Configure settings and save
-
-### Step 4: First Run
-
-1. From Jellyfin Dashboard, navigate to **Scheduled Tasks**
-2. Find "Analyze Library for Content Filter" task
-3. Click **Run** to start initial analysis
+---
 
 ## See Also
 
-- [Configuration Guide](./configuration.md)
-- [User Guide](./user-guide.md)
+- [Configuration Reference](./configuration.md)
 - [Troubleshooting](./troubleshooting.md)
+- [Versioning Policy](./versioning.md)

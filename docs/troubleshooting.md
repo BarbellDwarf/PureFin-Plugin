@@ -1,132 +1,141 @@
 # Troubleshooting Guide
 
-## Common Issues
+## Plugin Not Loading
 
-### Plugin Not Loading
+**Symptoms:** Plugin doesn't appear in Jellyfin dashboard or plugin settings after installation.
 
-**Symptoms**: Plugin doesn't appear in Jellyfin dashboard after installation.
+**Steps:**
 
-**Solutions**:
-1. Check Jellyfin logs for assembly errors:
+1. Check Jellyfin log for `[PluginServiceRegistrator]` or `ContentFilter` entries at startup:
+   - Dashboard → Logs, or grep the log file: `grep -i "ContentFilter\|PluginServiceRegistrator" /var/log/jellyfin/*.log`
+
+2. Verify Jellyfin version is **10.9 or higher** — earlier versions have a different plugin ABI.
+
+3. Ensure the plugin ZIP was extracted to `<jellyfin-data>/plugins/` and Jellyfin was fully restarted (not just config reloaded).
+
+4. Ensure .NET 8 runtime is installed on the server.
+
+---
+
+## AI Services Not Reachable
+
+**Symptoms:** Library analysis fails; plugin log shows connection errors to AI services.
+
+**Steps:**
+
+1. Run `docker compose ps` in `ai-services/` — all services should show `Up`:
    ```bash
-   journalctl -u jellyfin -n 100 | grep -i error
-   ```
-
-2. Verify plugin DLL is in correct location:
-   ```bash
-   ls -la /var/lib/jellyfin/plugins/ContentFilter/
-   ```
-
-3. Ensure correct .NET version (8.0) is installed
-
-4. Restart Jellyfin server completely
-
-### AI Services Failing
-
-**Symptoms**: Services won't start or health checks fail.
-
-**Solutions**:
-1. Check Docker container status:
-   ```bash
+   cd ai-services
    docker compose ps
-   docker compose logs
    ```
 
-2. Verify model paths exist:
+2. Check readiness of each service:
    ```bash
-   ls -la ai-services/models/
+   curl http://localhost:3001/ready   # nsfw-detector
+   curl http://localhost:3002/ready   # scene-analyzer
+   curl http://localhost:3004/ready   # content-classifier
    ```
 
-3. Check GPU drivers (if using GPU):
+3. **Expected response when ready:**
+   ```json
+   {"status": "ready", "models_loaded": true}
+   ```
+
+4. **Expected response when degraded (models not loaded):**
+   ```json
+   {"status": "degraded", "models_loaded": false, "reason": "Model file not found at ..."}
+   ```
+
+5. Check Docker logs for errors:
    ```bash
-   nvidia-smi
+   docker compose logs --tail=50
    ```
 
-4. Rebuild containers:
+---
+
+## Services Degraded (Models Not Loaded)
+
+**Symptoms:** `/ready` returns `{"status": "degraded"}` and services return HTTP 503 for analysis requests.
+
+**Cause:** Placeholder/random model generation has been disabled. Real model files must be provided.
+
+**Steps:**
+
+1. Check `ai-services/models/model-manifest.json` to see which model files are expected and at which paths.
+
+2. Obtain real model files:
+   - `nsfw_model.h5` — Keras NSFW classifier
+   - `violence_model.h5` — Keras violence classifier
+   - CLIP model weights — for content-classifier
+
+3. Place model files in the paths specified in the manifest.
+
+4. Restart services:
    ```bash
-   docker compose down
-   docker compose build --no-cache
-   docker compose up -d
+   docker compose restart
    ```
 
-### High Latency
+5. Verify: `curl http://localhost:3001/ready` should now return `{"status": "ready", "models_loaded": true}`.
 
-**Symptoms**: Content analysis is very slow.
+---
 
-**Solutions**:
-1. Enable GPU acceleration in docker-compose.yml
-2. Reduce model size or sampling rate
-3. Adjust scene detection threshold (higher = fewer scenes)
-4. Limit concurrent analysis jobs
+## Analysis Not Running
 
-### Incorrect Segments
+**Symptoms:** No segments are being created; playback filtering never triggers.
 
-**Symptoms**: Content is filtered incorrectly or not filtered when it should be.
+**Steps:**
 
-**Solutions**:
-1. Adjust sensitivity level in plugin configuration
-2. Review and correct segments manually
-3. Provide feedback for AI model improvement
-4. Check confidence thresholds
+1. Go to **Dashboard → Scheduled Tasks → Analyze Content Library** and run it manually.
 
-### Database Locked
-
-**Symptoms**: Database locked errors in logs.
-
-**Solutions**:
-1. Ensure WAL mode is enabled:
+2. Check the plugin log for errors from `AnalyzeLibraryTask`:
    ```bash
-   sqlite3 content_filter.db "PRAGMA journal_mode=WAL;"
+   grep -i "AnalyzeLibraryTask\|ContentFilter" /var/log/jellyfin/*.log
    ```
 
-2. Check file permissions:
-   ```bash
-   ls -la /var/lib/jellyfin/data/
-   ```
+3. Verify AI services are reachable (see section above).
 
-3. Reduce concurrent database access
+---
 
-### Permission Denied
+## Filtering Not Happening During Playback
 
-**Symptoms**: Can't write to segment directory or plugin directory.
+**Symptoms:** Analysis has completed but content is not being skipped during playback.
 
-**Solutions**:
-1. Check directory ownership:
-   ```bash
-   sudo chown -R jellyfin:jellyfin /segments
-   ```
+**Steps:**
 
-2. Verify directory permissions:
-   ```bash
-   sudo chmod 755 /segments
-   ```
+1. Confirm that analysis has been run and segment files exist in the segment directory (default: `/segments/`).
 
-3. Check SELinux/AppArmor policies if applicable
+2. Check the configured sensitivity level — if set to `permissive`, only very high-confidence detections are triggered (threshold 0.85).
+
+3. Verify the relevant content categories are enabled in plugin settings (EnableNudity, EnableViolence, etc.).
+
+4. Check the plugin log for `PlaybackMonitor` entries during playback.
+
+---
 
 ## Getting Help
 
-1. Check [FAQ](./faq.md)
+1. Check the [FAQ](./faq.md)
 2. Review [GitHub Issues](https://github.com/BarbellDwarf/PureFin-Plugin/issues)
-3. Join community discussions
-4. Enable debug logging for more details
+3. Enable debug logging in Jellyfin and share the relevant log section when filing an issue
+
+---
 
 ## Debug Logging
 
-Enable debug logging in plugin configuration:
+To enable verbose logging, add to `logging.json` in your Jellyfin config directory:
 ```json
 {
-  "LogLevel": "Debug"
+  "Serilog": {
+    "MinimumLevel": {
+      "Override": {
+        "Jellyfin.Plugin.ContentFilter": "Debug"
+      }
+    }
+  }
 }
 ```
 
-Check logs:
+Check AI service logs:
 ```bash
-# Jellyfin logs
-journalctl -u jellyfin -f
-
-# AI service logs
 docker compose logs -f
-
-# Plugin-specific logs
-grep "ContentFilter" /var/log/jellyfin/*.log
 ```

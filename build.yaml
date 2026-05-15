@@ -11,6 +11,7 @@ description: >
   content including nudity, immodesty, violence, and profanity using self-hosted 
   AI models and community-curated data.
 category: "General"
+imageUrl: ""
 artifacts:
   - "Jellyfin.Plugin.ContentFilter.dll"
 changelog: >

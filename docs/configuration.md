@@ -1,101 +1,76 @@
-# Configuration Guide
+# Configuration Reference
 
-## Plugin Configuration
+Access plugin configuration: **Dashboard → Plugins → PureFin → Settings**
 
-Access plugin configuration through: **Dashboard** → **Plugins** → **Content Filter**
+---
 
-### Content Categories
+## All Configuration Options
 
-Enable or disable filtering for each content category:
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `AiServiceBaseUrl` | string | `http://localhost:3002` | Base URL for the scene-analyzer service (the plugin's primary AI endpoint) |
+| `Sensitivity` | string | `moderate` | Sensitivity preset: `strict`, `moderate`, or `permissive` |
+| `EnableNudity` | bool | `true` | Enable NSFW/nudity filtering |
+| `EnableImmodesty` | bool | `true` | Enable immodesty filtering |
+| `EnableViolence` | bool | `true` | Enable violence filtering |
+| `EnableProfanity` | bool | `true` | Enable profanity filtering (requires audio pipeline — not yet active) |
+| `NudityThreshold` | double | `0.35` | Overridden by sensitivity preset |
+| `ImmodestyThreshold` | double | `0.20` | Overridden by sensitivity preset |
+| `ViolenceThreshold` | double | `0.45` | Overridden by sensitivity preset |
+| `ProfanityThreshold` | double | `0.30` | Not currently overridden by preset |
+| `SegmentDirectory` | string | `/segments` | Directory for JSON segment files |
+| `PreferCommunityData` | bool | `true` | **Planned** — logs a warning when set; no community source is active |
+| `EnableOsdFeedback` | bool | `false` | Show on-screen toast when content is skipped |
+| `SceneDetectionMethod` | string | `transnetv2` | `transnetv2`, `ffmpeg`, or `sampling` |
+| `FfmpegSceneThreshold` | double | `0.3` | Scene cut threshold for `ffmpeg` method |
+| `SamplingIntervalSeconds` | int | `30` | Frame sampling interval for `sampling` method |
 
-- **Nudity**: Detects full or partial nudity in video content
-- **Immodesty**: Detects revealing clothing and immodest attire
-- **Violence**: Detects violent content including weapons, blood, and fighting
-- **Profanity**: Detects profane language in audio tracks
+---
 
-### Sensitivity Levels
+## Sensitivity Presets
 
-Choose the appropriate sensitivity level for your needs:
+The `Sensitivity` setting overrides the individual NSFW and violence threshold sliders. Lower thresholds = more aggressive filtering.
 
-#### Strict
-- **Nudity Threshold**: 0.1 (very sensitive)
-- **Immodesty Threshold**: 0.2
-- **Violence Threshold**: 0.15
-- **Use Case**: Families with young children, strict content requirements
+| Preset | NSFW Threshold | Violence Threshold | Effect |
+|--------|---------------|-------------------|--------|
+| `strict` | 0.45 | 0.45 | Catches most flagged content; may have more false positives |
+| `moderate` | 0.65 | 0.65 | Balanced (default) |
+| `permissive` | 0.85 | 0.85 | Only very high-confidence detections |
 
-#### Moderate (Default)
-- **Nudity Threshold**: 0.3 (balanced)
-- **Immodesty Threshold**: 0.5
-- **Violence Threshold**: 0.4
-- **Use Case**: General family viewing, balanced filtering
+---
 
-#### Permissive
-- **Nudity Threshold**: 0.7 (less sensitive)
-- **Immodesty Threshold**: 0.8
-- **Violence Threshold**: 0.7
-- **Use Case**: Adult viewers, minimal filtering
+## Content Categories
 
-### Directory Settings
+- **Nudity / Immodesty**: Detected by the nsfw-detector service (port 3001).
+- **Violence**: Detected by the content-classifier service (port 3004).
+- **Profanity**: Planned — requires Whisper audio pipeline, not yet active.
 
-**Segment Directory**: Location where content segment data is stored
-- Default: `/segments`
-- Ensure the directory is writable by Jellyfin
-- This directory will contain JSON files with timestamp data for filtered content
+---
 
-### AI Service Settings
+## Planned / Not Yet Active Settings
 
-**AI Service Base URL**: Base URL for AI content analysis services
-- Default: `http://localhost:3000`
-- For Docker deployments, use appropriate service URLs
-- Ensure services are accessible from Jellyfin server
+- **`PreferCommunityData`**: Config option is present and will log a one-time warning when enabled. No community data source is integrated yet.
+- **Per-user profiles**: The configuration UI notes this as "Coming in a future release." All users currently share the global plugin settings.
 
-### Data Source Preferences
-
-**Prefer Community Data**: When enabled, community-curated segment data takes precedence over AI-generated data
-- Default: Enabled
-- Community data is typically manually reviewed and more accurate
-- AI data fills gaps where community data is unavailable
-
-### User Interface
-
-**Enable OSD Feedback**: Show on-screen notifications when content is filtered
-- Default: Disabled
-- When enabled, displays brief messages like "Content Filtered: Violence"
-- May be distracting for some users
-
-## Scheduled Tasks
-
-Configure automatic content analysis:
-
-1. Navigate to **Dashboard** → **Scheduled Tasks**
-2. Find "Analyze Library for Content Filter"
-3. Set schedule (e.g., daily at 3 AM)
-4. Configure trigger conditions
+---
 
 ## Backup and Restore
 
-### Backup Configuration
-
 ```bash
-# Plugin configuration
+# Backup plugin configuration
 cp /var/lib/jellyfin/config/plugins/ContentFilter.xml ~/backup/
 
-# Segment data
+# Backup segment data
 tar -czf segments_backup.tar.gz /segments/
-```
 
-### Restore Configuration
-
-```bash
-# Restore plugin configuration
+# Restore
 cp ~/backup/ContentFilter.xml /var/lib/jellyfin/config/plugins/
-
-# Restore segment data
 tar -xzf segments_backup.tar.gz -C /
 ```
+
+---
 
 ## See Also
 
 - [Installation Guide](./install.md)
-- [User Guide](./user-guide.md)
 - [Troubleshooting](./troubleshooting.md)
