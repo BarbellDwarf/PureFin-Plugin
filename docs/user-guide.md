@@ -2,110 +2,49 @@
 
 ## Overview
 
-Content Filter provides automatic detection and filtering of objectionable content in your Jellyfin media library, including:
+PureFin detects and filters objectionable content in your Jellyfin library using local AI services.
+
+Current categories:
 - Nudity
 - Immodesty (revealing clothing)
 - Violence
-- Profanity
 
 ## How It Works
 
-1. **Analysis**: AI services analyze your media library to detect objectionable content
-2. **Segmentation**: Content is divided into time-based segments with category labels
-3. **Filtering**: During playback, the plugin automatically skips or mutes flagged segments
+1. **Analyze**: The scheduled task sends video scene windows to AI services.
+2. **Store**: Segment JSON is saved per media item with raw AI scores.
+3. **Filter**: During playback, PureFin evaluates each segment against current thresholds and skips matching content.
 
 ## Getting Started
 
-### Initial Setup
+1. Install and configure PureFin (see [Installation Guide](./install.md)).
+2. Run **Analyze Library for PureFin** from **Dashboard → Scheduled Tasks**.
+3. Tune sensitivity and category toggles in **Dashboard → Plugins → PureFin**.
+4. Play media normally; filtering is applied automatically.
 
-1. Install and configure the plugin (see [Installation Guide](./install.md))
-2. Run the initial library analysis
-3. Configure your filtering preferences
-4. Start watching filtered content!
+## Configuring Filters
 
-### Configuring Filters
+Open **Dashboard → Plugins → PureFin**.
 
-Navigate to **Dashboard** → **Plugins** → **Content Filter**
+- **Enable/Disable Categories**: Toggle nudity, immodesty, violence.
+- **Sensitivity / Thresholds**: Control how aggressively segments are flagged.
+- **Scene Detection Method**: Use `transnetv2` for accurate variable-length scene detection (recommended).
 
-**Enable/Disable Categories**: Toggle filtering for specific content types
-**Sensitivity Level**: Choose strict, moderate, or permissive filtering
-**User Preferences**: Set different preferences for each Jellyfin user
+## Reviewing Segments (Admin)
 
-### Using Filtered Content
+Use the built-in admin page:
 
-Filtered content plays automatically with objectionable segments skipped or muted:
+1. Open **Dashboard → Plugins → PureFin Segments**.
+2. Search for a movie or episode.
+3. Click **View Segments** to inspect start/end/duration, action, categories, and raw scores.
 
-- **Skip Action**: Video jumps over the filtered segment
-- **Mute Action**: Audio is muted during the segment (for profanity)
+## Known Limitations
 
-### Manual Overrides
+- `mute` action currently falls back to `skip`.
+- Per-user profiles are not implemented yet (global configuration applies to all users).
+- Profanity audio pipeline is planned, not currently active.
 
-Override automatic filtering for specific media:
+## Troubleshooting and FAQ
 
-1. Navigate to media item
-2. Click **Edit Metadata**
-3. Adjust Content Filter settings
-4. Save changes
-
-### Reviewing Segments
-
-View detected segments for a media item:
-
-1. Open media details
-2. Navigate to Content Filter section
-3. Review flagged segments with timestamps
-4. Edit or remove incorrect segments
-
-## Best Practices
-
-### Sensitivity Selection
-
-- **Strict**: Best for young children, filters more content
-- **Moderate**: Balanced for general family viewing
-- **Permissive**: Minimal filtering for adult viewers
-
-### Regular Analysis
-
-Schedule automatic library analysis:
-- Run analysis after adding new content
-- Re-analyze periodically for improved accuracy
-- Configure scheduled tasks in Jellyfin dashboard
-
-### Feedback and Improvement
-
-Help improve filtering accuracy:
-- Report false positives/negatives
-- Manually correct segments
-- Share anonymized data for model training (optional)
-
-## Advanced Features
-
-### Per-User Profiles
-
-Create custom filtering profiles for different users:
-- Children: Strict filtering, all categories enabled
-- Teenagers: Moderate filtering, selective categories
-- Adults: Permissive or no filtering
-
-### Community Data
-
-Leverage community-curated segment data:
-- More accurate than AI-generated data
-- Manually reviewed by users
-- Automatically merged with AI segments
-
-### Custom Actions
-
-Configure custom actions for filtered content:
-- Skip entirely
-- Mute audio only
-- Blur video (if supported)
-- Show warning notification
-
-## Troubleshooting
-
-See [Troubleshooting Guide](./troubleshooting.md) for common issues and solutions.
-
-## FAQ
-
-See [FAQ](./faq.md) for frequently asked questions.
+- [Troubleshooting Guide](./troubleshooting.md)
+- [FAQ](./faq.md)

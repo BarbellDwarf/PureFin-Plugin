@@ -2,6 +2,9 @@
 
 import os
 import logging
+import gc
+import threading
+import time
 from datetime import datetime
 from flask import Flask, request, jsonify
 from prometheus_client import Counter, Histogram, generate_latest
@@ -23,9 +26,13 @@ ERROR_COUNT = Counter('nsfw_errors_total', 'Total NSFW detection errors')
 # Model placeholder - in production, load actual NSFW model
 MODEL_PATH = os.getenv('MODEL_PATH', '/app/models')
 USE_GPU = os.getenv('USE_GPU', '0') == '1'
+MODEL_IDLE_UNLOAD_SECONDS = int(os.getenv('MODEL_IDLE_UNLOAD_SECONDS', '900'))
+MODEL_IDLE_CHECK_SECONDS = int(os.getenv('MODEL_IDLE_CHECK_SECONDS', '30'))
 model_loaded = False
 nsfw_model = None
 _models_ready = False
+model_lock = threading.Lock()
+last_model_use_monotonic = time.monotonic()
 
 # GPU detection
 gpu_available = False
@@ -52,61 +59,124 @@ CATEGORIES = ['drawings', 'hentai', 'neutral', 'porn', 'sexy']
 
 def load_model():
     """Load NSFW detection model."""
+    global model_loaded, nsfw_model, _models_ready, last_model_use_monotonic
+    with model_lock:
+        if model_loaded and nsfw_model is not None:
+            last_model_use_monotonic = time.monotonic()
+            return True
+
+        try:
+            # Try loading H5 model first (our custom model)
+            h5_path = os.path.join(MODEL_PATH, 'nsfw', 'nsfw_model.h5')
+            savedmodel_path = os.path.join(MODEL_PATH, 'nsfw', 'mobilenet_v2_140_224')
+
+            import tensorflow as tf
+
+            if os.path.exists(h5_path):
+                logger.info("Loading NSFW H5 model from %s", h5_path)
+                try:
+                    nsfw_model = tf.keras.models.load_model(h5_path)
+                    logger.info("Successfully loaded NSFW H5 model")
+                    model_loaded = True
+                    _models_ready = True
+
+                    # Test prediction to ensure model works
+                    test_input = tf.random.normal((1, 224, 224, 3))
+                    _ = nsfw_model.predict(test_input, verbose=0)
+                    logger.info("Model test prediction successful")
+                    last_model_use_monotonic = time.monotonic()
+                    return True
+
+                except Exception as h5_error:
+                    logger.error("H5 model loading failed: %s", h5_error)
+
+            elif os.path.exists(savedmodel_path):
+                logger.info("Loading NSFW SavedModel from %s", savedmodel_path)
+                try:
+                    nsfw_model = tf.keras.models.load_model(savedmodel_path)
+                    logger.info("Successfully loaded NSFW TensorFlow SavedModel")
+                    model_loaded = True
+                    _models_ready = True
+
+                    # Test prediction to ensure model works
+                    test_input = tf.random.normal((1, 224, 224, 3))
+                    _ = nsfw_model.predict(test_input, verbose=0)
+                    logger.info("Model test prediction successful")
+                    last_model_use_monotonic = time.monotonic()
+                    return True
+
+                except Exception as tf_error:
+                    logger.error("SavedModel loading failed: %s", tf_error)
+            else:
+                logger.warning("No NSFW model found at %s or %s", h5_path, savedmodel_path)
+
+            model_loaded = False
+            _models_ready = False
+            nsfw_model = None
+            return False
+
+        except Exception as e:
+            logger.error("Error loading model: %s", e)
+            model_loaded = False
+            _models_ready = False
+            nsfw_model = None
+            return False
+
+
+def _has_model_assets():
+    """Return True when model files exist and lazy-load can succeed."""
+    h5_path = os.path.join(MODEL_PATH, 'nsfw', 'nsfw_model.h5')
+    savedmodel_path = os.path.join(MODEL_PATH, 'nsfw', 'mobilenet_v2_140_224')
+    return os.path.exists(h5_path) or os.path.exists(savedmodel_path)
+
+
+def _touch_model_use():
+    """Record model usage for idle-unload tracking."""
+    global last_model_use_monotonic
+    last_model_use_monotonic = time.monotonic()
+
+
+def unload_model(reason="idle timeout"):
+    """Unload model from memory."""
     global model_loaded, nsfw_model, _models_ready
-    try:
-        # Try loading H5 model first (our custom model)
-        h5_path = os.path.join(MODEL_PATH, 'nsfw', 'nsfw_model.h5')
-        savedmodel_path = os.path.join(MODEL_PATH, 'nsfw', 'mobilenet_v2_140_224')
-        
-        import tensorflow as tf
-        
-        if os.path.exists(h5_path):
-            logger.info(f"Loading NSFW H5 model from {h5_path}")
-            try:
-                nsfw_model = tf.keras.models.load_model(h5_path)
-                logger.info("Successfully loaded NSFW H5 model")
-                model_loaded = True
-                _models_ready = True
-                
-                # Test prediction to ensure model works
-                test_input = tf.random.normal((1, 224, 224, 3))
-                _ = nsfw_model.predict(test_input, verbose=0)
-                logger.info("Model test prediction successful")
-                
-                return True
-                
-            except Exception as h5_error:
-                logger.error(f"H5 model loading failed: {h5_error}")
-                
-        elif os.path.exists(savedmodel_path):
-            logger.info(f"Loading NSFW SavedModel from {savedmodel_path}")
-            try:
-                nsfw_model = tf.keras.models.load_model(savedmodel_path)
-                logger.info("Successfully loaded NSFW TensorFlow SavedModel")
-                model_loaded = True
-                _models_ready = True
-                
-                # Test prediction to ensure model works
-                test_input = tf.random.normal((1, 224, 224, 3))
-                _ = nsfw_model.predict(test_input, verbose=0)
-                logger.info("Model test prediction successful")
-                
-                return True
-                
-            except Exception as tf_error:
-                logger.error(f"SavedModel loading failed: {tf_error}")
-        else:
-            logger.warning(f"No NSFW model found at {h5_path} or {savedmodel_path}")
-        
+    with model_lock:
+        if nsfw_model is None and not model_loaded:
+            return False
+        nsfw_model = None
         model_loaded = False
         _models_ready = False
-        return False
-        
-    except Exception as e:
-        logger.error(f"Error loading model: {e}")
-        model_loaded = False
-        _models_ready = False
-        return False
+        try:
+            import tensorflow as tf
+            tf.keras.backend.clear_session()
+        except Exception:
+            pass
+        gc.collect()
+        logger.info("NSFW model unloaded (%s)", reason)
+        return True
+
+
+def ensure_model_loaded():
+    """Load model on demand when a request arrives."""
+    if model_loaded and nsfw_model is not None:
+        _touch_model_use()
+        return True
+    return load_model()
+
+
+def _idle_unload_worker():
+    """Background worker that unloads model after inactivity."""
+    if MODEL_IDLE_UNLOAD_SECONDS <= 0:
+        logger.info("Idle model unload disabled (MODEL_IDLE_UNLOAD_SECONDS <= 0)")
+        return
+
+    while True:
+        time.sleep(max(5, MODEL_IDLE_CHECK_SECONDS))
+        if not model_loaded:
+            continue
+        idle_seconds = time.monotonic() - last_model_use_monotonic
+        if idle_seconds >= MODEL_IDLE_UNLOAD_SECONDS:
+            unload_model(
+                reason=f'idle for {int(idle_seconds)}s (threshold={MODEL_IDLE_UNLOAD_SECONDS}s)')
 
 
 def analyze_image(image_data):
@@ -134,6 +204,7 @@ def analyze_image(image_data):
         
         # Get model prediction
         predictions = nsfw_model.predict(input_batch, verbose=0)[0]
+        _touch_model_use()
         logger.debug(f"Real NSFW model predictions: {predictions}")
         
         results = {
@@ -151,10 +222,14 @@ def analyze_image(image_data):
 @app.route('/health', methods=['GET'])
 def health_check():
     """Health check endpoint."""
+    idle_seconds = int(time.monotonic() - last_model_use_monotonic)
     return jsonify({
         'status': 'healthy' if model_loaded else 'degraded',
         'model_loaded': model_loaded,
         'ready': _models_ready,
+        'lazy_load_available': _has_model_assets(),
+        'model_idle_unload_seconds': MODEL_IDLE_UNLOAD_SECONDS,
+        'seconds_since_model_use': idle_seconds,
         'gpu_available': gpu_available,
         'gpu_enabled': USE_GPU,
         'timestamp': datetime.now().isoformat(),
@@ -167,6 +242,13 @@ def ready():
     """Readiness endpoint — returns 200 only when the model is loaded and inference is possible."""
     if _models_ready:
         return jsonify({'status': 'ready', 'models_loaded': True})
+    if _has_model_assets():
+        return jsonify({
+            'status': 'ready',
+            'models_loaded': False,
+            'lazy_load': True,
+            'reason': 'Model will load on-demand for the next inference request'
+        })
     return jsonify({
         'status': 'degraded',
         'models_loaded': False,
@@ -181,8 +263,8 @@ def analyze():
     REQUEST_COUNT.inc()
     
     try:
-        # Check if model is loaded
-        if not _models_ready:
+        # Lazy-load model if needed.
+        if not ensure_model_loaded():
             ERROR_COUNT.inc()
             return jsonify({'error': 'Model not loaded', 'degraded': True}), 503
         
@@ -227,8 +309,8 @@ def metrics():
 
 
 if __name__ == '__main__':
-    # Load model on startup
-    load_model()
+    # Start idle-unload worker (model loading is lazy on first inference request).
+    threading.Thread(target=_idle_unload_worker, daemon=True, name='nsfw-idle-unloader').start()
     
     # Run Flask app
     port = int(os.getenv('PORT', 3000))

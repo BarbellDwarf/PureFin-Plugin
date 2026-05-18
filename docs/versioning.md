@@ -19,11 +19,11 @@ The `targetAbi` in `build.yaml` specifies the minimum Jellyfin server version re
 
 | targetAbi | Minimum Jellyfin Version |
 |-----------|--------------------------|
-| 10.9.0.0 | Jellyfin 10.9.x and newer |
+| 10.11.0.0 | Jellyfin 10.11.x and newer |
 
-**Current targetAbi:** 10.9.0.0
+**Current targetAbi:** 10.11.0.0
 
-This means the plugin is compatible with Jellyfin 10.9.x, 10.10.x, and 10.11.x.
+This means the plugin is compatible with Jellyfin 10.11.x.
 
 ## Model Versioning
 
@@ -58,6 +58,6 @@ AI models are versioned independently of the plugin using semantic versioning (`
 
 Users can add the plugin repository in Jellyfin:
 1. Go to **Dashboard → Plugins → Repositories**
-2. Click **+** and add: `https://barbellDwarf.github.io/PureFin-Plugin/repository.json`
+2. Click **+** and add: `https://BarbellDwarf.github.io/PureFin-Plugin/repository.json`
 3. Go to **Dashboard → Plugins → Catalog** and search for PureFin
 4. Install and restart Jellyfin

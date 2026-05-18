@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Upgraded plugin project and tests to `net9.0` with Jellyfin package version `10.11.8`
+- Updated plugin compatibility metadata to `targetAbi 10.11.0.0`
+- Renamed user-facing plugin/task/category text to **PureFin**
+- Added admin segment inspection page and API (`PureFin Segments`)
+- Updated scene detection defaults and UI messaging to prefer TransNetV2 variable scene detection
+- Added scene-analyzer queue controls with pause/resume/status endpoints and Jellyfin admin UI controls
+- Added idle model auto-unload + lazy-load behavior for AI services to reduce steady-state resource usage
+
+### Fixed
+- Corrected documentation references that still pointed to `net8.0`, Jellyfin `10.9`, old task names, and old plugin naming
+- Aligned CI/release workflow .NET SDK versions and artifact paths with current `net9.0` build output
+
 ## [1.0.1.0] - 2025-01-01
 ### Fixed
 - Plugin DI registration: implemented `IPluginServiceRegistrator` so plugin services now start correctly in Jellyfin

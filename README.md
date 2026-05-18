@@ -1,8 +1,8 @@
-# PureFin Content Filter Plugin
+# PureFin Plugin for Jellyfin
 
-AI-powered content filtering for Jellyfin media server. Detects and skips objectionable content using self-hosted AI analysis. No data leaves your server — all processing runs locally via Docker.
+AI-powered content filtering for Jellyfin. PureFin analyzes media with self-hosted AI services and skips flagged segments during playback.
 
-> **ABI / Compatibility**: net8.0 · Jellyfin 10.9+ · targetAbi 10.9.0.0
+> **Compatibility**: `net9.0` plugin · Jellyfin `10.11.x` · `targetAbi 10.11.0.0`
 
 ---
 
@@ -10,67 +10,61 @@ AI-powered content filtering for Jellyfin media server. Detects and skips object
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| NSFW filtering | ✅ | Real model path; service returns 503 if models not loaded |
-| Violence filtering | ✅ | Threshold-based; wired to sensitivity presets |
-| Profanity filtering | 🔲 | Planned — requires Whisper audio pipeline |
-| Skip action | ✅ | Seeks to end of flagged segment |
-| Mute action | ⚠️ | Falls back to skip with a log warning (no native mute API) |
-| Sensitivity presets | ✅ | Low/Medium/High map to score thresholds (0.85 / 0.65 / 0.45) |
-| Per-user profiles | 🔲 | Planned — all users currently share global settings |
-| Community data | ⚠️ | Config option present; logs warning; no source implemented yet |
-| Manual overrides | 🔲 | Planned — segment edit UI not started |
+| Scene detection (TransNetV2) | ✅ | Default method; variable-length scene windows |
+| NSFW + immodesty scoring | ✅ | Threshold-based with dynamic filtering at playback |
+| Violence scoring | ✅ | Category mapped from AI response scores |
+| Queue pause/resume controls | ✅ | Admin can pause/resume scene-analyzer queue from plugin UI |
+| Idle model auto-unload | ✅ | AI services unload inactive models and lazy-load on next request |
+| Skip action | ✅ | Seeks to end of segment |
+| Mute action | ⚠️ | Falls back to skip with a warning |
+| Admin segment inspection UI | ✅ | `PureFin Segments` page and API |
+| Per-user profiles | 🔲 | Planned |
+| Profanity pipeline | 🔲 | Planned (audio/transcription pipeline required) |
+| Community data merge | 🔲 | Planned |
 
 ---
 
 ## Quick Start
 
-### Host Install (plugin only, AI services running separately)
-
-1. Add the plugin repository in Jellyfin (see [Plugin Repository](#plugin-repository) section below).
+1. Add the plugin repository URL in Jellyfin (see [Plugin Repository](#plugin-repository)).
 2. Install **PureFin** from the catalog and restart Jellyfin.
-3. Go to **Dashboard → Plugins → PureFin → Settings** and set `AiServiceBaseUrl` if needed.
+3. Start AI services and verify readiness.
+4. Run **Analyze Library for PureFin** from **Dashboard → Scheduled Tasks**.
 
-### Docker (Jellyfin + AI services)
+### Start AI Services
 
 ```bash
-# Start all AI services (nsfw-detector:3001, scene-analyzer:3002, content-classifier:3004)
 cd ai-services
 docker compose up -d
 
-# Verify readiness
 curl http://localhost:3001/ready
 curl http://localhost:3002/ready
 curl http://localhost:3004/ready
 ```
 
-Then install the plugin via the Jellyfin catalog and point `AiServiceBaseUrl` at `http://localhost:3002`.
-
-### Windows
-
-Follow the Docker steps above (Docker Desktop required), then install via the plugin repository.
+Set `AiServiceBaseUrl` to `http://localhost:3002` if needed.
 
 ---
 
 ## Plugin Repository
 
-Repository URL:
 ```
-https://barbellDwarf.github.io/PureFin-Plugin/repository.json
+https://BarbellDwarf.github.io/PureFin-Plugin/repository.json
 ```
 
-Steps:
 1. **Dashboard → Plugins → Repositories → +**
-2. Paste the URL above and save.
-3. Go to **Catalog**, find **PureFin**, and click **Install**.
-4. Restart Jellyfin when prompted.
+2. Add the URL above and save.
+3. Go to **Catalog**, find **PureFin**, click **Install**.
+4. Restart Jellyfin.
 
 ---
 
 ## Requirements
 
-- **Jellyfin** 10.9+
-- **.NET 8 runtime** on the Jellyfin server
-- **Python 3.10+** and **Docker** (for AI services)
+- **Jellyfin** `10.11.x`
+- **Docker** `24+` for AI services
+- **Python** `3.10+` for AI tooling/scripts
+- Optional GPU acceleration for faster analysis
 
 ---
 
@@ -79,6 +73,7 @@ Steps:
 - [Installation Guide](docs/install.md)
 - [Configuration Reference](docs/configuration.md)
 - [Versioning Policy](docs/versioning.md)
+- [Rollout and Operations](docs/rollout.md)
 - [Troubleshooting](docs/troubleshooting.md)
 
 ---
@@ -87,19 +82,20 @@ Steps:
 
 ```
 Jellyfin Server
-└── Content Filter Plugin (.NET 8)
-    ├── PluginServiceRegistrator  ← registers services via IPluginServiceRegistrator
-    ├── SegmentStore              ← in-memory + JSON file cache
-    ├── PlaybackMonitor           ← 500 ms polling; executes skip actions
-    └── AnalyzeLibraryTask        ← calls AI scene-analyzer, persists segments
+└── PureFin Plugin (.NET 9)
+    ├── PluginServiceRegistrator
+    ├── SegmentStore
+    ├── PlaybackMonitor
+    ├── AnalyzeLibraryTask
+    └── PureFinSegmentsController
 
 AI Services (Docker)
-├── scene-analyzer      (port 3002)  ← orchestrator called by plugin
-├── nsfw-detector       (port 3001)  ← NSFW/nudity detection
-└── content-classifier  (port 3004)  ← violence/content classification
+├── scene-analyzer      (port 3002)
+├── nsfw-detector       (port 3001)
+└── content-classifier  (port 3004)
 ```
 
-Segments are stored as JSON files (one per media item). Raw AI scores are persisted; thresholds are applied dynamically at playback time based on the current sensitivity setting.
+Segments are persisted as JSON with raw AI scores. Active categories are derived dynamically from current threshold settings.
 
 ---
 
@@ -107,18 +103,11 @@ Segments are stored as JSON files (one per media item). Raw AI scores are persis
 
 ```
 PureFin-Plugin/
-├── Jellyfin.Plugin.ContentFilter/       # C# plugin
-│   ├── Configuration/                   # PluginConfiguration + SensitivityThresholds
-│   ├── Models/                          # Segment, SegmentData
-│   ├── Services/                        # SegmentStore, PlaybackMonitor
-│   ├── Tasks/                           # AnalyzeLibraryTask
-│   ├── Web/                             # config.html
-│   ├── Plugin.cs
-│   └── PluginServiceRegistrator.cs
-├── Jellyfin.Plugin.ContentFilter.Tests/ # xUnit test project
-├── ai-services/                         # Python AI services + Docker Compose
-├── docs/                                # Extended documentation
-└── build.yaml                           # Plugin manifest
+├── Jellyfin.Plugin.ContentFilter/
+├── Jellyfin.Plugin.ContentFilter.Tests/
+├── ai-services/
+├── docs/
+└── build.yaml
 ```
 
 ---
@@ -126,9 +115,4 @@ PureFin-Plugin/
 ## License
 
 See [LICENSE](LICENSE) for details.
-
-## Acknowledgments
-
-- [Jellyfin](https://jellyfin.org/) — Free Software Media System
-- [FFmpeg](https://ffmpeg.org/) — Video processing
 

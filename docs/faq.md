@@ -20,7 +20,7 @@ Only clients that support chapter/segment skip via the Jellyfin API. Web and mos
 
 ### Which Jellyfin versions are supported?
 
-Jellyfin **10.9 or higher**. The plugin targets `targetAbi 10.9.0.0` and has been tested on 10.9.x–10.11.x.
+Jellyfin **10.11.x**. The plugin targets `targetAbi 10.11.0.0` and is built against Jellyfin package version 10.11.8.
 
 ### Does it work with Emby or Plex?
 

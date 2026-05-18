@@ -114,15 +114,15 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </summary>
     public PluginConfiguration WithSensitivityThresholds()
     {
-        var (nsfwThreshold, violenceThreshold) = SensitivityThresholds.GetThresholds(Sensitivity);
+        var (nudityThreshold, immodestyThreshold, violenceThreshold) = SensitivityThresholds.GetThresholds(Sensitivity);
         return new PluginConfiguration
         {
             EnableNudity = EnableNudity,
             EnableImmodesty = EnableImmodesty,
             EnableViolence = EnableViolence,
             EnableProfanity = EnableProfanity,
-            NudityThreshold = nsfwThreshold,
-            ImmodestyThreshold = nsfwThreshold,
+            NudityThreshold = nudityThreshold,
+            ImmodestyThreshold = immodestyThreshold,
             ViolenceThreshold = violenceThreshold,
             ProfanityThreshold = ProfanityThreshold,
             Sensitivity = Sensitivity,
@@ -140,24 +140,26 @@ public class PluginConfiguration : BasePluginConfiguration
 }
 
 /// <summary>
-/// Maps the Sensitivity preset string to concrete NSFW and violence score thresholds.
+/// Maps the Sensitivity preset string to concrete score thresholds per content category.
 /// Lower thresholds = more aggressive filtering (more content is caught).
+/// Immodesty uses a lower threshold than nudity because revealing-clothing scenes
+/// score in the 0.15–0.40 range on the NSFW model, while explicit nudity scores 0.60+.
 /// </summary>
 public static class SensitivityThresholds
 {
     /// <summary>
-    /// Returns (NsfwThreshold, ViolenceThreshold) for the given sensitivity preset.
+    /// Returns (NudityThreshold, ImmodestyThreshold, ViolenceThreshold) for the given sensitivity preset.
     /// <list type="bullet">
-    ///   <item><term>strict</term><description>0.45 / 0.45 — catches most content</description></item>
-    ///   <item><term>moderate</term><description>0.65 / 0.65 — balanced (default)</description></item>
-    ///   <item><term>permissive</term><description>0.85 / 0.85 — only very-high-confidence content</description></item>
+    ///   <item><term>strict</term><description>0.30 / 0.12 / 0.40 — catches most content</description></item>
+    ///   <item><term>moderate</term><description>0.55 / 0.22 / 0.60 — balanced (default)</description></item>
+    ///   <item><term>permissive</term><description>0.75 / 0.45 / 0.75 — only very-high-confidence content</description></item>
     /// </list>
     /// </summary>
-    public static (double NsfwThreshold, double ViolenceThreshold) GetThresholds(string? sensitivity) =>
+    public static (double NudityThreshold, double ImmodestyThreshold, double ViolenceThreshold) GetThresholds(string? sensitivity) =>
         sensitivity?.ToLowerInvariant() switch
         {
-            "strict" => (0.45, 0.45),
-            "permissive" => (0.85, 0.85),
-            _ => (0.65, 0.65)
+            "strict" => (0.30, 0.12, 0.40),
+            "permissive" => (0.75, 0.45, 0.75),
+            _ => (0.55, 0.22, 0.60) // moderate
         };
 }

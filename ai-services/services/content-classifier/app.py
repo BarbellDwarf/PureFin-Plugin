@@ -2,6 +2,9 @@
 
 import os
 import logging
+import gc
+import threading
+import time
 from datetime import datetime
 from flask import Flask, request, jsonify
 from prometheus_client import Counter, Histogram, generate_latest
@@ -48,12 +51,16 @@ ERROR_COUNT = Counter('classifier_errors_total', 'Total classification errors')
 # Model placeholder
 MODEL_PATH = os.getenv('MODEL_PATH', '/app/models')
 USE_GPU = os.getenv('USE_GPU', '0') == '1'
+MODEL_IDLE_UNLOAD_SECONDS = int(os.getenv('MODEL_IDLE_UNLOAD_SECONDS', '900'))
+MODEL_IDLE_CHECK_SECONDS = int(os.getenv('MODEL_IDLE_CHECK_SECONDS', '30'))
 models_loaded = False
 _models_ready = False
 violence_model = None
 clip_model = None
 clip_processor = None
 clip_device = "cpu"
+model_lock = threading.Lock()
+last_model_use_monotonic = time.monotonic()
 
 # GPU detection
 gpu_available = False
@@ -81,89 +88,164 @@ NUDITY_CATEGORIES = ['none', 'partial_nudity', 'full_nudity', 'suggestive']
 
 def load_models():
     """Load classification models."""
-    global models_loaded, violence_model, clip_model, clip_processor, _models_ready
-    try:
-        models_loaded = False
-        _models_ready = False
-        
-        # Load violence detection model
-        violence_path = os.path.join(MODEL_PATH, 'violence', 'violence_model.h5')
-        if os.path.exists(violence_path):
-            try:
-                # Disable all JIT/XLA compilation
-                tf.config.optimizer.set_jit(False)
-                
-                # Force CPU device for violence model to avoid GPU JIT issues
-                with tf.device('/CPU:0'):
-                    violence_model = tf.keras.models.load_model(violence_path, compile=False)
-                logger.info("Successfully loaded violence detection model on CPU (avoiding GPU JIT issues)")
-                
-                logger.info("Violence model loaded successfully (using CPU inference)")
-                
-            except Exception as e:
-                logger.error("Failed to load violence model: %s", e)
-                violence_model = None
-        else:
-            logger.warning("Violence model not found at %s", violence_path)
-            violence_model = None
-        
-        # Load CLIP model for content classification
-        try:
-            from transformers import CLIPModel, CLIPProcessor
-            
-            clip_model_path = os.path.join(MODEL_PATH, 'content', 'clip-vit-base-patch32')
-            if os.path.exists(clip_model_path) and os.path.exists(os.path.join(clip_model_path, 'config.json')):
-                # Load from local cache
-                clip_model = CLIPModel.from_pretrained(clip_model_path)
-                clip_processor = CLIPProcessor.from_pretrained(clip_model_path)
-                logger.info("Loaded CLIP model from local cache")
-            else:
-                # Download and cache CLIP model
-                logger.info("Downloading CLIP model (this may take a few minutes)...")
-                clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
-                clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
-                
-                # Save to local cache
-                os.makedirs(clip_model_path, exist_ok=True)
-                clip_model.save_pretrained(clip_model_path)
-                clip_processor.save_pretrained(clip_model_path)
-                logger.info("CLIP model downloaded and cached")
+    global models_loaded, violence_model, clip_model, clip_processor, _models_ready, clip_device, last_model_use_monotonic
+    with model_lock:
+        if models_loaded and (violence_model is not None or clip_model is not None):
+            last_model_use_monotonic = time.monotonic()
+            return True
 
-            # Move CLIP model to GPU if available
-            try:
-                import torch
-                global clip_device
-                if USE_GPU and torch.cuda.is_available():
-                    clip_device = "cuda"
-                    clip_model = clip_model.to(clip_device)
-                    clip_model.eval()
-                    logger.info("CLIP model moved to CUDA device")
-                else:
-                    clip_device = "cpu"
-            except Exception as e:
-                logger.warning("Could not set CLIP device: %s", e)
-                
-        except Exception as e:
-            logger.error("Failed to load CLIP model: %s", e)
+        try:
+            models_loaded = False
+            _models_ready = False
+            violence_model = None
             clip_model = None
             clip_processor = None
-        
-        # Set loaded flag if at least one model is available
-        models_loaded = (violence_model is not None) or (clip_model is not None)
-        _models_ready = models_loaded
-        
-        if models_loaded:
-            logger.info("Content classifier models loaded successfully")
-        else:
-            logger.warning("No models could be loaded; service will return 503 for inference requests")
-        
-        return models_loaded
-        
-    except Exception as e:
-        logger.error("Error loading models: %s", e)
+            clip_device = "cpu"
+
+            # Load violence detection model
+            violence_path = os.path.join(MODEL_PATH, 'violence', 'violence_model.h5')
+            if os.path.exists(violence_path):
+                try:
+                    # Disable all JIT/XLA compilation
+                    tf.config.optimizer.set_jit(False)
+
+                    # Force CPU device for violence model to avoid GPU JIT issues
+                    with tf.device('/CPU:0'):
+                        violence_model = tf.keras.models.load_model(violence_path, compile=False)
+                    logger.info("Successfully loaded violence detection model on CPU (avoiding GPU JIT issues)")
+                except Exception as e:
+                    logger.error("Failed to load violence model: %s", e)
+                    violence_model = None
+            else:
+                logger.warning("Violence model not found at %s", violence_path)
+
+            # Load CLIP model for content classification
+            try:
+                from transformers import CLIPModel, CLIPProcessor
+
+                clip_model_path = os.path.join(MODEL_PATH, 'content', 'clip-vit-base-patch32')
+                if os.path.exists(clip_model_path) and os.path.exists(os.path.join(clip_model_path, 'config.json')):
+                    # Load from local cache
+                    clip_model = CLIPModel.from_pretrained(clip_model_path)
+                    clip_processor = CLIPProcessor.from_pretrained(clip_model_path)
+                    logger.info("Loaded CLIP model from local cache")
+                else:
+                    # Download and cache CLIP model
+                    logger.info("Downloading CLIP model (this may take a few minutes)...")
+                    clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
+                    clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
+
+                    # Save to local cache
+                    os.makedirs(clip_model_path, exist_ok=True)
+                    clip_model.save_pretrained(clip_model_path)
+                    clip_processor.save_pretrained(clip_model_path)
+                    logger.info("CLIP model downloaded and cached")
+
+                # Move CLIP model to GPU if available
+                try:
+                    import torch
+                    if USE_GPU and torch.cuda.is_available():
+                        clip_device = "cuda"
+                        clip_model = clip_model.to(clip_device)
+                        clip_model.eval()
+                        logger.info("CLIP model moved to CUDA device")
+                    else:
+                        clip_device = "cpu"
+                except Exception as e:
+                    logger.warning("Could not set CLIP device: %s", e)
+
+            except Exception as e:
+                logger.error("Failed to load CLIP model: %s", e)
+                clip_model = None
+                clip_processor = None
+
+            # Set loaded flag if at least one model is available
+            models_loaded = (violence_model is not None) or (clip_model is not None)
+            _models_ready = models_loaded
+            if models_loaded:
+                last_model_use_monotonic = time.monotonic()
+                logger.info("Content classifier models loaded successfully")
+            else:
+                logger.warning("No models could be loaded; service will return 503 for inference requests")
+
+            return models_loaded
+
+        except Exception as e:
+            logger.error("Error loading models: %s", e)
+            models_loaded = False
+            _models_ready = False
+            violence_model = None
+            clip_model = None
+            clip_processor = None
+            clip_device = "cpu"
+            return False
+
+
+def _has_model_assets():
+    """Return True when model files exist and lazy loading can work."""
+    violence_path = os.path.join(MODEL_PATH, 'violence', 'violence_model.h5')
+    clip_model_path = os.path.join(MODEL_PATH, 'content', 'clip-vit-base-patch32')
+    return os.path.exists(violence_path) or os.path.exists(os.path.join(clip_model_path, 'config.json'))
+
+
+def _touch_model_use():
+    """Record model usage for idle-unload tracking."""
+    global last_model_use_monotonic
+    last_model_use_monotonic = time.monotonic()
+
+
+def unload_models(reason="idle timeout"):
+    """Unload model objects from memory."""
+    global models_loaded, _models_ready, violence_model, clip_model, clip_processor, clip_device
+    with model_lock:
+        if violence_model is None and clip_model is None and clip_processor is None and not models_loaded:
+            return False
+
+        violence_model = None
+        clip_model = None
+        clip_processor = None
+        clip_device = "cpu"
         models_loaded = False
         _models_ready = False
-        return False
+
+        try:
+            import tensorflow as _tf
+            _tf.keras.backend.clear_session()
+        except Exception:
+            pass
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
+        gc.collect()
+        logger.info("Content-classifier models unloaded (%s)", reason)
+        return True
+
+
+def ensure_models_loaded():
+    """Load models on demand for the next request."""
+    if models_loaded and (violence_model is not None or clip_model is not None):
+        _touch_model_use()
+        return True
+    return load_models()
+
+
+def _idle_unload_worker():
+    """Background worker that unloads models after inactivity."""
+    if MODEL_IDLE_UNLOAD_SECONDS <= 0:
+        logger.info("Idle model unload disabled (MODEL_IDLE_UNLOAD_SECONDS <= 0)")
+        return
+
+    while True:
+        time.sleep(max(5, MODEL_IDLE_CHECK_SECONDS))
+        if not models_loaded:
+            continue
+        idle_seconds = time.monotonic() - last_model_use_monotonic
+        if idle_seconds >= MODEL_IDLE_UNLOAD_SECONDS:
+            unload_models(
+                reason=f'idle for {int(idle_seconds)}s (threshold={MODEL_IDLE_UNLOAD_SECONDS}s)')
 
 
 def classify_violence(image):
@@ -191,6 +273,7 @@ def classify_violence(image):
         with tf.device('/CPU:0'):
             # Get violence prediction (binary classification)
             violence_prob = violence_model.predict(input_batch, verbose=0)[0][0]
+        _touch_model_use()
         
         # Create detailed category scores based on overall violence score
         # Higher violence score increases likelihood of specific violence types
@@ -308,6 +391,7 @@ def classify_with_clip(image, text_queries):
         import torch
         with torch.no_grad():
             outputs = clip_model(**inputs)
+        _touch_model_use()
         logits_per_image = outputs.logits_per_image
         probs = logits_per_image.softmax(dim=1)
         
@@ -401,10 +485,14 @@ def classify_content(image_data):
 @app.route('/health', methods=['GET'])
 def health_check():
     """Health check endpoint."""
+    idle_seconds = int(time.monotonic() - last_model_use_monotonic)
     return jsonify({
         'status': 'healthy' if models_loaded else 'degraded',
         'models_loaded': models_loaded,
         'ready': _models_ready,
+        'lazy_load_available': _has_model_assets(),
+        'model_idle_unload_seconds': MODEL_IDLE_UNLOAD_SECONDS,
+        'seconds_since_model_use': idle_seconds,
         'gpu_available': gpu_available,
         'gpu_enabled': USE_GPU,
         'clip_device': clip_device,
@@ -418,6 +506,13 @@ def ready():
     """Readiness endpoint — returns 200 only when models are loaded and inference is possible."""
     if _models_ready:
         return jsonify({'status': 'ready', 'models_loaded': True})
+    if _has_model_assets():
+        return jsonify({
+            'status': 'ready',
+            'models_loaded': False,
+            'lazy_load': True,
+            'reason': 'Models will load on-demand for the next inference request'
+        })
     return jsonify({
         'status': 'degraded',
         'models_loaded': False,
@@ -432,8 +527,8 @@ def classify():
     REQUEST_COUNT.inc()
     
     try:
-        # Check if models are loaded
-        if not _models_ready:
+        # Lazy-load models if needed.
+        if not ensure_models_loaded():
             ERROR_COUNT.inc()
             return jsonify({'error': 'Models not loaded', 'degraded': True, 'service': 'content-classifier'}), 503
         
@@ -474,8 +569,8 @@ def metrics():
 
 
 if __name__ == '__main__':
-    # Load models on startup
-    load_models()
+    # Start idle-unload worker (models are lazy-loaded on first request).
+    threading.Thread(target=_idle_unload_worker, daemon=True, name='classifier-idle-unloader').start()
     
     # Run Flask app
     port = int(os.getenv('PORT', '3000'))

@@ -20,6 +20,8 @@ services:
     environment:
       - MODEL_PATH=/app/models
       - PROCESSING_DIR=/tmp/processing
+      - MODEL_IDLE_UNLOAD_SECONDS=${MODEL_IDLE_UNLOAD_SECONDS:-900}
+      - MODEL_IDLE_CHECK_SECONDS=${MODEL_IDLE_CHECK_SECONDS:-30}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
       interval: 30s
@@ -41,6 +43,10 @@ services:
       - PROCESSING_DIR=/tmp/processing
       - NSFW_DETECTOR_URL=http://nsfw-detector:3000
       - CONTENT_CLASSIFIER_URL=http://content-classifier:3000
+      - MODEL_IDLE_UNLOAD_SECONDS=${MODEL_IDLE_UNLOAD_SECONDS:-900}
+      - MODEL_IDLE_CHECK_SECONDS=${MODEL_IDLE_CHECK_SECONDS:-30}
+      - ANALYSIS_QUEUE_MAX_SIZE=${ANALYSIS_QUEUE_MAX_SIZE:-8}
+      - ANALYSIS_QUEUE_WAIT_TIMEOUT_SECONDS=${ANALYSIS_QUEUE_WAIT_TIMEOUT_SECONDS:-3600}
     depends_on:
       - nsfw-detector
       - content-classifier
@@ -64,6 +70,8 @@ services:
     environment:
       - MODEL_PATH=/app/models
       - PROCESSING_DIR=/tmp/processing
+      - MODEL_IDLE_UNLOAD_SECONDS=${MODEL_IDLE_UNLOAD_SECONDS:-900}
+      - MODEL_IDLE_CHECK_SECONDS=${MODEL_IDLE_CHECK_SECONDS:-30}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
       interval: 30s

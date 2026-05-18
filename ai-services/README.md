@@ -80,7 +80,7 @@ volumes:
 ### Scene Analyzer (Port 3002)
 - **Purpose**: Main entry point for video analysis
 - **Technology**: Python + FFmpeg
-- **Function**: Detects scene boundaries and coordinates content analysis
+- **Function**: Detects scene boundaries, queues jobs, and coordinates content analysis
 - **Requirements**: Access to media files (`/mnt/media`)
 
 ### NSFW Detector (Port 3001)
@@ -134,6 +134,18 @@ volumes:
 - Process fewer scenes (increase `threshold`)
 - Upgrade Docker resources (RAM, CPU)
 
+### Queue paused / analysis not progressing
+
+**Problem**: Jobs are queued but not processing.
+
+**Solution**:
+```bash
+curl http://localhost:3002/queue/status
+curl -X POST http://localhost:3002/queue/resume
+```
+
+You can also pause/resume from the PureFin plugin UI.
+
 ## Advanced Configuration
 
 ### Using .env File (Recommended)
@@ -176,6 +188,18 @@ ai-services/
 
 They'll be available at `/app/models/` inside containers.
 
+### Resource Management (Idle Model Unload)
+
+By default, models are unloaded after inactivity and reloaded on-demand:
+
+- `MODEL_IDLE_UNLOAD_SECONDS` (default: `900`)
+- `MODEL_IDLE_CHECK_SECONDS` (default: `30`)
+
+Scene-analyzer queue behavior:
+
+- `ANALYSIS_QUEUE_MAX_SIZE` (default: `8`)
+- `ANALYSIS_QUEUE_WAIT_TIMEOUT_SECONDS` (default: `3600`)
+
 ## API Testing
 
 Test each service independently:
@@ -190,6 +214,11 @@ curl http://localhost:3004/health  # Content Classifier
 curl http://localhost:3001/ready   # NSFW Detector
 curl http://localhost:3004/ready   # Content Classifier
 curl http://localhost:3002/ready   # Scene Analyzer (checks all downstream services)
+
+# Queue controls
+curl http://localhost:3002/queue/status
+curl -X POST http://localhost:3002/queue/pause -H "Content-Type: application/json" -d '{"reason":"maintenance"}'
+curl -X POST http://localhost:3002/queue/resume
 
 # Analyze a video (requires media path mounted)
 curl -X POST http://localhost:3002/analyze \

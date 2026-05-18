@@ -6,14 +6,14 @@
 
 **Steps:**
 
-1. Check Jellyfin log for `[PluginServiceRegistrator]` or `ContentFilter` entries at startup:
-   - Dashboard → Logs, or grep the log file: `grep -i "ContentFilter\|PluginServiceRegistrator" /var/log/jellyfin/*.log`
+1. Check Jellyfin log for `PureFin` or `Jellyfin.Plugin.ContentFilter` entries at startup:
+   - Dashboard → Logs, or grep the log file: `grep -i "PureFin\|Jellyfin.Plugin.ContentFilter\|PluginServiceRegistrator" /var/log/jellyfin/*.log`
 
-2. Verify Jellyfin version is **10.9 or higher** — earlier versions have a different plugin ABI.
+2. Verify Jellyfin version is **10.11.x** — earlier versions have a different plugin ABI.
 
 3. Ensure the plugin ZIP was extracted to `<jellyfin-data>/plugins/` and Jellyfin was fully restarted (not just config reloaded).
 
-4. Ensure .NET 8 runtime is installed on the server.
+4. Confirm the installed plugin version matches the Jellyfin ABI requirement (`targetAbi 10.11.0.0`).
 
 ---
 
@@ -39,6 +39,11 @@
 3. **Expected response when ready:**
    ```json
    {"status": "ready", "models_loaded": true}
+   ```
+
+   Services may also return ready with lazy loading when models are currently unloaded to save memory:
+   ```json
+   {"status": "ready", "models_loaded": false, "lazy_load": true}
    ```
 
 4. **Expected response when degraded (models not loaded):**
@@ -85,14 +90,51 @@
 
 **Steps:**
 
-1. Go to **Dashboard → Scheduled Tasks → Analyze Content Library** and run it manually.
+1. Go to **Dashboard → Scheduled Tasks → Analyze Library for PureFin** and run it manually.
 
 2. Check the plugin log for errors from `AnalyzeLibraryTask`:
    ```bash
-   grep -i "AnalyzeLibraryTask\|ContentFilter" /var/log/jellyfin/*.log
+   grep -i "AnalyzeLibraryTask\|PureFin\|Jellyfin.Plugin.ContentFilter" /var/log/jellyfin/*.log
    ```
 
 3. Verify AI services are reachable (see section above).
+
+---
+
+## Queue Is Paused
+
+**Symptoms:** Analysis jobs remain pending and do not progress.
+
+**Steps:**
+
+1. Open **Dashboard → Plugins → PureFin**.
+2. In **Analysis Queue Controls (Admin)**, check status.
+3. Click **Resume Queue**.
+4. Recheck status and confirm active/processed counters are moving.
+
+You can also query directly:
+```bash
+curl http://localhost:3002/queue/status
+```
+
+---
+
+## Models Keep Unloading
+
+**Symptoms:** First analysis call after inactivity is slower.
+
+**Cause:** Idle model auto-unload is enabled by design to free resources.
+
+**Options:**
+
+1. Increase timeout in `ai-services/docker-compose.yml`:
+   - `MODEL_IDLE_UNLOAD_SECONDS=1800` (example)
+2. Disable unload entirely:
+   - `MODEL_IDLE_UNLOAD_SECONDS=0`
+3. Restart services after changes:
+   ```bash
+   docker compose up -d
+   ```
 
 ---
 

@@ -174,7 +174,7 @@ public class AnalyzeLibraryTask : IScheduledTask
             {
                 video_path = containerPath,
                 threshold = 0.15,  // Lower threshold to detect more scenes
-                sample_count = 3,
+                sample_count = 5,
                 scene_detection_method = config.SceneDetectionMethod ?? "transnetv2",
                 ffmpeg_scene_threshold = config.FfmpegSceneThreshold,
                 sampling_interval = config.SamplingIntervalSeconds

@@ -4,7 +4,7 @@
 
 | Channel | Repository URL | Description |
 |---------|---------------|-------------|
-| Stable | `https://barbellDwarf.github.io/PureFin-Plugin/repository.json` | Production-ready |
+| Stable | `https://BarbellDwarf.github.io/PureFin-Plugin/repository.json` | Production-ready |
 
 Pre-release builds are marked as GitHub pre-releases and are not included in the stable manifest.
 
@@ -12,15 +12,14 @@ Pre-release builds are marked as GitHub pre-releases and are not included in the
 
 ## Staged Rollout
 
-### Alpha (Current State)
+### Alpha
 - Manual install from GitHub Releases ZIP
-- For developers and early testers only
-- No update mechanism
+- For developers and early testers
 
-### Beta
+### Beta (Current State)
 - Available via Jellyfin plugin repository (pre-release channel)
-- Tested on Jellyfin 10.9+ with Docker AI services
-- Feature-complete but not validated at scale
+- Tested on Jellyfin 10.11.8 with Docker AI services
+- Feature-complete core pipeline with ongoing scale validation
 
 ### Stable
 - Available via stable repository manifest
@@ -58,7 +57,7 @@ Pre-release builds are marked as GitHub pre-releases and are not included in the
 - Docker logs: `docker compose logs -f` in `ai-services/`
 
 **Key indicators:**
-- Plugin loaded: look for `[ContentFilter]` or `[PluginServiceRegistrator]` in Jellyfin log at startup
+- Plugin loaded: look for `PureFin` or `Jellyfin.Plugin.ContentFilter` entries in Jellyfin startup logs
 - AI services ready: `curl http://localhost:3002/ready` returns `{"status": "ready", ...}`
 - Analysis running: Scheduled Tasks log in Jellyfin dashboard
 
@@ -92,7 +91,7 @@ AI services refuse to run with placeholder/random model files. Real model files 
 
 | Plugin Version | targetAbi | Supported Jellyfin |
 |---------------|-----------|-------------------|
-| 1.0.x | 10.9.0.0 | 10.9.x, 10.10.x, 10.11.x |
+| 1.0.x | 10.11.0.0 | 10.11.x |
 
 When Jellyfin releases a breaking ABI change, a new plugin version with an updated `targetAbi` will be required.
 

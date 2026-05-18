@@ -16,7 +16,7 @@ jobs:
           git checkout --orphan gh-pages
           git rm -rf .
           echo '[]' > repository.json
-          echo '<h1>PureFin Plugin Repository</h1><p>Add this URL to Jellyfin: <code>https://barbellDwarf.github.io/PureFin-Plugin/repository.json</code></p>' > index.html
+          echo '<h1>PureFin Plugin Repository</h1><p>Add this URL to Jellyfin: <code>https://BarbellDwarf.github.io/PureFin-Plugin/repository.json</code></p>' > index.html
           git add repository.json index.html
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"

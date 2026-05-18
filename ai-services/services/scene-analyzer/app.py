@@ -4,6 +4,10 @@ import os
 import logging
 import subprocess
 import re
+import queue
+import threading
+import time
+import uuid
 from datetime import datetime
 from flask import Flask, request, jsonify
 from prometheus_client import Counter, Histogram, generate_latest
@@ -53,33 +57,92 @@ transnetv2_available = False
 TRANSNET_THRESHOLD = float(os.getenv('TRANSNET_THRESHOLD', '0.5'))
 MIN_SCENE_DURATION_SECONDS = float(os.getenv('MIN_SCENE_DURATION_SECONDS', '1.0'))
 TRANSNET_DYNAMIC_PERCENTILE = float(os.getenv('TRANSNET_DYNAMIC_PERCENTILE', '99.5'))
+MODEL_IDLE_UNLOAD_SECONDS = int(os.getenv('MODEL_IDLE_UNLOAD_SECONDS', '900'))
+MODEL_IDLE_CHECK_SECONDS = int(os.getenv('MODEL_IDLE_CHECK_SECONDS', '30'))
+ANALYSIS_QUEUE_MAX_SIZE = max(1, int(os.getenv('ANALYSIS_QUEUE_MAX_SIZE', '8')))
+ANALYSIS_QUEUE_WAIT_TIMEOUT_SECONDS = int(os.getenv('ANALYSIS_QUEUE_WAIT_TIMEOUT_SECONDS', '3600'))
+
+model_lock = threading.Lock()
+transnet_last_used_monotonic = time.monotonic()
+
+analysis_queue = queue.Queue(maxsize=ANALYSIS_QUEUE_MAX_SIZE)
+queue_state_lock = threading.Lock()
+queue_pause_condition = threading.Condition(queue_state_lock)
+queue_paused = False
+queue_paused_at = None
+queue_pause_reason = ""
+queue_active_jobs = 0
+queue_processed_jobs = 0
+queue_failed_jobs = 0
 
 def load_transnetv2():
     """Load TransNetV2 model for AI-based scene detection."""
+    global transnetv2_model, transnetv2_available, transnet_last_used_monotonic
+
+    with model_lock:
+        if transnetv2_model is not None and transnetv2_available:
+            transnet_last_used_monotonic = time.monotonic()
+            return True
+
+        try:
+            import torch
+            from transnetv2_pytorch import TransNetV2
+
+            logger.info("Loading TransNetV2 model...")
+            model = TransNetV2()
+
+            # Move to GPU if available and requested
+            device = 'cuda' if USE_GPU and torch.cuda.is_available() else 'cpu'
+            model = model.to(device)
+            model.eval()
+
+            transnetv2_model = model
+            transnetv2_available = True
+            transnet_last_used_monotonic = time.monotonic()
+            if device == 'cuda' and (ffmpeg_amf_available or ffmpeg_vaapi_available):
+                logger.info("TransNetV2 loaded on CUDA device (hip/ROCm may be active — AMD GPU hwaccel detected)")
+            else:
+                logger.info("TransNetV2 model loaded successfully on device: %s", device)
+            return True
+        except Exception as e:
+            logger.warning("Could not load TransNetV2: %s. Falling back to FFmpeg scene detection.", e)
+            transnetv2_model = None
+            transnetv2_available = False
+            return False
+
+
+def unload_transnetv2(reason="idle timeout"):
+    """Unload TransNetV2 model to free memory."""
     global transnetv2_model, transnetv2_available
-    
-    try:
-        import torch
-        from transnetv2_pytorch import TransNetV2
-        
-        logger.info("Loading TransNetV2 model...")
-        transnetv2_model = TransNetV2()
-        
-        # Move to GPU if available and requested
-        device = 'cuda' if USE_GPU and torch.cuda.is_available() else 'cpu'
-        transnetv2_model = transnetv2_model.to(device)
-        transnetv2_model.eval()
-        
-        transnetv2_available = True
-        if device == 'cuda' and (ffmpeg_amf_available or ffmpeg_vaapi_available):
-            logger.info("TransNetV2 loaded on CUDA device (hip/ROCm may be active — AMD GPU hwaccel detected)")
-        else:
-            logger.info("TransNetV2 model loaded successfully on device: %s", device)
-        return True
-    except Exception as e:
-        logger.warning("Could not load TransNetV2: %s. Falling back to FFmpeg scene detection.", e)
+
+    with model_lock:
+        if transnetv2_model is None and not transnetv2_available:
+            return False
+
+        transnetv2_model = None
         transnetv2_available = False
-        return False
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
+        logger.info("TransNetV2 model unloaded (%s)", reason)
+        return True
+
+
+def _mark_transnet_used():
+    """Record model usage for idle-unload tracking."""
+    global transnet_last_used_monotonic
+    transnet_last_used_monotonic = time.monotonic()
+
+
+def _ensure_transnetv2_loaded():
+    """Lazy-load TransNetV2 model when needed."""
+    if transnetv2_model is not None and transnetv2_available:
+        _mark_transnet_used()
+        return True
+    return load_transnetv2()
 
 def detect_ffmpeg_hwaccel():
     """Detect FFmpeg hardware accelerators available inside the container.
@@ -269,13 +332,14 @@ def extract_scenes_transnetv2(video_path):
     try:
         import torch
         
-        if not transnetv2_available or transnetv2_model is None:
+        if not _ensure_transnetv2_loaded() or transnetv2_model is None:
             raise RuntimeError("TransNetV2 model not available")
         
         logger.info("Using TransNetV2 for scene detection...")
         duration = get_video_duration(video_path)
         
         predictions = transnetv2_model.predict_video(video_path)
+        _mark_transnet_used()
         scene_probs = _normalize_scene_probabilities(predictions)
         
         # Get frame rate
@@ -492,13 +556,14 @@ def _build_sample_timestamps(scene, requested_samples, total_scene_count):
     """Build robust sampling timestamps inside scene boundaries."""
     sample_target = max(1, int(requested_samples))
 
-    # Scale sample count down when the movie has many scene boundaries.
+    # Scale sample count down when the movie has many scene boundaries so total
+    # inference time stays reasonable.
     if total_scene_count >= 1200:
-        sample_target = min(sample_target, 1)
-    elif total_scene_count >= 600:
         sample_target = min(sample_target, 2)
-    elif total_scene_count >= 300:
+    elif total_scene_count >= 600:
         sample_target = min(sample_target, 3)
+    elif total_scene_count >= 300:
+        sample_target = min(sample_target, 4)
 
     start = float(scene['start'])
     end = float(scene['end'])
@@ -506,12 +571,15 @@ def _build_sample_timestamps(scene, requested_samples, total_scene_count):
     if duration <= 0:
         return [start]
 
-    if duration <= 2:
+    if duration <= 1:
         sample_target = 1
-    elif duration <= 8:
-        sample_target = min(sample_target, 2)
-    elif duration <= 20:
+    elif duration <= 5:
+        # Short scenes: sample beginning, middle and end to avoid missing fast cuts.
         sample_target = min(sample_target, 3)
+    elif duration <= 15:
+        sample_target = min(sample_target, 4)
+    elif duration <= 40:
+        sample_target = min(sample_target, 5)
 
     padding = min(0.25, duration * 0.1)
     sample_start = start + padding
@@ -577,9 +645,260 @@ def extract_frame(video_path, timestamp, output_path=None):
         raise
 
 
+class AnalysisJobError(Exception):
+    """Represents a controlled analysis failure with an HTTP status code."""
+
+    def __init__(self, status_code, payload):
+        super().__init__(payload.get('error', 'Analysis job failed'))
+        self.status_code = status_code
+        self.payload = payload
+
+
+def _queue_snapshot():
+    """Return a queue status snapshot."""
+    with queue_state_lock:
+        return {
+            'paused': queue_paused,
+            'paused_at': queue_paused_at,
+            'pause_reason': queue_pause_reason,
+            'pending_jobs': analysis_queue.qsize(),
+            'active_jobs': queue_active_jobs,
+            'processed_jobs': queue_processed_jobs,
+            'failed_jobs': queue_failed_jobs,
+            'max_queue_size': ANALYSIS_QUEUE_MAX_SIZE,
+        }
+
+
+def _set_queue_paused(paused, reason=''):
+    """Pause or resume queue processing."""
+    global queue_paused, queue_paused_at, queue_pause_reason
+    with queue_pause_condition:
+        queue_paused = paused
+        if paused:
+            queue_paused_at = datetime.now().isoformat()
+            queue_pause_reason = reason or 'Paused from control endpoint'
+        else:
+            queue_paused_at = None
+            queue_pause_reason = ''
+            queue_pause_condition.notify_all()
+    return _queue_snapshot()
+
+
+def _wait_if_queue_paused():
+    """Block worker execution while queue processing is paused."""
+    with queue_pause_condition:
+        while queue_paused:
+            queue_pause_condition.wait(timeout=1.0)
+
+
+def _transnet_idle_unload_worker():
+    """Background worker that unloads TransNetV2 when idle."""
+    if MODEL_IDLE_UNLOAD_SECONDS <= 0:
+        logger.info("TransNet idle-unload disabled (MODEL_IDLE_UNLOAD_SECONDS <= 0)")
+        return
+
+    while True:
+        time.sleep(max(5, MODEL_IDLE_CHECK_SECONDS))
+        if transnetv2_model is None:
+            continue
+        idle_seconds = time.monotonic() - transnet_last_used_monotonic
+        if idle_seconds >= MODEL_IDLE_UNLOAD_SECONDS:
+            unload_transnetv2(
+                reason=f'idle for {int(idle_seconds)}s (threshold={MODEL_IDLE_UNLOAD_SECONDS}s)')
+
+
+def _analyze_video_payload(data):
+    """Run full analysis for one request payload."""
+    if not data or 'video_path' not in data:
+        raise AnalysisJobError(400, {'error': 'No video_path provided'})
+
+    video_path = data['video_path']
+    sample_count = data.get('sample_count', 3)
+
+    # Get scene detection method and parameters
+    scene_method = (data.get('scene_detection_method', 'transnetv2') or 'transnetv2').lower()
+    ffmpeg_threshold = data.get('ffmpeg_scene_threshold', 0.3)
+    sampling_interval = data.get('sampling_interval', 30)
+
+    # Check if file exists
+    if not os.path.exists(video_path):
+        raise AnalysisJobError(404, {'error': 'Video file not found'})
+
+    logger.info("Analyzing video: %s using method=%s", video_path, scene_method)
+
+    # Extract scenes using specified method
+    scenes = extract_scenes(
+        video_path,
+        method=scene_method,
+        ffmpeg_scene_threshold=ffmpeg_threshold,
+        sampling_interval=sampling_interval
+    )
+    logger.info("Found %d scenes using %s method", len(scenes), scene_method)
+
+    # If no scenes detected, use a minimal segmentation approach
+    if len(scenes) == 0:
+        logger.warning("No scenes detected by selected method, analyzing entire video as single scene")
+        probe_cmd = ['ffprobe', '-v', 'error', '-show_entries', 'format=duration',
+                    '-of', 'default=noprint_wrappers=1:nokey=1', video_path]
+        duration = float(subprocess.check_output(probe_cmd).decode().strip())
+        scenes = [{'start': 0, 'end': duration, 'duration': duration}]
+
+    # Analyze each scene using real AI services
+    results = []
+
+    for i, scene in enumerate(scenes):
+        try:
+            timestamps = _build_sample_timestamps(scene, sample_count, len(scenes))
+
+            # Extract and analyze frames
+            nudity_scores = []
+            violence_scores = []
+            immodesty_scores = []
+
+            for timestamp in timestamps:
+                frame_path = None
+                try:
+                    frame_path = extract_frame(
+                        video_path,
+                        timestamp,
+                        f"/tmp/processing/scene_{i}_frame_{timestamp:.3f}.jpg"
+                    )
+
+                    # Call NSFW detector for nudity/immodesty
+                    with open(frame_path, 'rb') as f:
+                        files = {'image': f}
+                        nsfw_response = session.post(f"{NSFW_DETECTOR_URL}/analyze",
+                                                     files=files, timeout=60)
+
+                    if nsfw_response.status_code == 503:
+                        raise AnalysisJobError(503, {
+                            'error': 'Downstream service not ready',
+                            'service': 'nsfw-detector',
+                            'degraded': True
+                        })
+                    if nsfw_response.status_code == 200:
+                        nsfw_data = nsfw_response.json()
+                        nudity_scores.append(nsfw_data.get('nudity', 0))
+                        immodesty_scores.append(nsfw_data.get('immodesty', 0))
+
+                    # Call content classifier for violence
+                    with open(frame_path, 'rb') as f:
+                        files = {'image': f}
+                        violence_response = session.post(f"{CONTENT_CLASSIFIER_URL}/classify",
+                                                         files=files, timeout=60)
+
+                    if violence_response.status_code == 503:
+                        raise AnalysisJobError(503, {
+                            'error': 'Downstream service not ready',
+                            'service': 'content-classifier',
+                            'degraded': True
+                        })
+                    if violence_response.status_code == 200:
+                        violence_data = violence_response.json()
+                        violence_scores.append(_extract_violence_score(violence_data))
+                except AnalysisJobError:
+                    raise
+                except (requests.RequestException, OSError, subprocess.CalledProcessError, ValueError, KeyError) as e:
+                    logger.error("Error analyzing frame at %s: %s", timestamp, e)
+                    continue
+                finally:
+                    if frame_path and os.path.exists(frame_path):
+                        os.remove(frame_path)
+
+            # Use MAX for nudity/immodesty: one flagged frame means the whole scene is flagged.
+            # Use average for violence: sustained violence is more meaningful than a single frame.
+            max_nudity = max(nudity_scores) if nudity_scores else 0
+            max_immodesty = max(immodesty_scores) if immodesty_scores else 0
+            avg_violence = sum(violence_scores) / len(violence_scores) if violence_scores else 0
+
+            confidence = max([max_nudity, avg_violence, max_immodesty]) if any(
+                [nudity_scores, violence_scores, immodesty_scores]) else 0
+
+            result = {
+                'start': scene['start'],
+                'end': scene['end'],
+                'duration': scene['duration'],
+                'analysis': {
+                    'nudity': max_nudity,
+                    'immodesty': max_immodesty,
+                    'violence': avg_violence,
+                    'confidence': confidence
+                }
+            }
+            results.append(result)
+
+            logger.info("Scene %d/%d: violence=%.3f, nudity=%.3f, immodesty=%.3f",
+                        i + 1, len(scenes), avg_violence, avg_nudity, avg_immodesty)
+
+        except AnalysisJobError:
+            raise
+        except (requests.RequestException, OSError, subprocess.CalledProcessError, ValueError, KeyError) as e:
+            logger.error("Error analyzing scene %d: %s", i, e)
+            results.append({
+                'start': scene['start'],
+                'end': scene['end'],
+                'duration': scene['duration'],
+                'analysis': {
+                    'nudity': 0,
+                    'immodesty': 0,
+                    'violence': 0,
+                    'confidence': 0
+                }
+            })
+
+    return {
+        'success': True,
+        'schema_version': '1.0',
+        'video_path': video_path,
+        'scene_count': len(scenes),
+        'scenes': results,
+        'model_versions': {
+            'nsfw-mobilenet': '1.0.0',
+            'violence-classifier': '1.0.0'
+        },
+        'timestamp': datetime.now().isoformat()
+    }
+
+
+def _analysis_queue_worker():
+    """Background worker that processes queued analysis requests sequentially."""
+    global queue_active_jobs, queue_processed_jobs, queue_failed_jobs
+
+    logger.info("Analysis queue worker started (max queue size: %d)", ANALYSIS_QUEUE_MAX_SIZE)
+    while True:
+        job = analysis_queue.get()
+        with queue_state_lock:
+            queue_active_jobs += 1
+        try:
+            _wait_if_queue_paused()
+            job['result'] = _analyze_video_payload(job['payload'])
+            job['status_code'] = 200
+            with queue_state_lock:
+                queue_processed_jobs += 1
+        except AnalysisJobError as ex:
+            job['result'] = ex.payload
+            job['status_code'] = ex.status_code
+            with queue_state_lock:
+                queue_failed_jobs += 1
+        except Exception as ex:  # noqa: BLE001 - worker must surface failures to caller
+            ERROR_COUNT.inc()
+            logger.error("Queued job %s failed: %s", job.get('id'), ex)
+            job['result'] = {'error': str(ex)}
+            job['status_code'] = 500
+            with queue_state_lock:
+                queue_failed_jobs += 1
+        finally:
+            with queue_state_lock:
+                queue_active_jobs = max(0, queue_active_jobs - 1)
+            job['event'].set()
+            analysis_queue.task_done()
+
+
 @app.route('/health', methods=['GET'])
 def health_check():
     """Health check endpoint."""
+    queue_state = _queue_snapshot()
+    idle_seconds = int(time.monotonic() - transnet_last_used_monotonic)
     return jsonify({
         'status': 'healthy',
         'use_gpu_requested': USE_GPU,
@@ -589,6 +908,10 @@ def health_check():
         'ffmpeg_vaapi_available': ffmpeg_vaapi_available,
         'ffmpeg_hwaccels': ffmpeg_hwaccels,
         'transnetv2_available': transnetv2_available,
+        'transnetv2_loaded': transnetv2_model is not None,
+        'model_idle_unload_seconds': MODEL_IDLE_UNLOAD_SECONDS,
+        'seconds_since_transnet_use': idle_seconds,
+        'queue': queue_state,
         'timestamp': datetime.now().isoformat(),
         'service': 'scene-analyzer'
     })
@@ -619,167 +942,69 @@ def ready():
         }), 503
 
 
+@app.route('/queue/status', methods=['GET'])
+def queue_status():
+    """Return analysis queue status."""
+    return jsonify({
+        'success': True,
+        **_queue_snapshot(),
+        'model_idle_unload_seconds': MODEL_IDLE_UNLOAD_SECONDS
+    })
+
+
+@app.route('/queue/pause', methods=['POST'])
+def queue_pause():
+    """Pause queue processing while still accepting queued jobs."""
+    body = request.get_json(silent=True) or {}
+    reason = body.get('reason', 'Paused from control endpoint')
+    state = _set_queue_paused(True, reason)
+    return jsonify({'success': True, **state})
+
+
+@app.route('/queue/resume', methods=['POST'])
+def queue_resume():
+    """Resume queue processing."""
+    state = _set_queue_paused(False)
+    return jsonify({'success': True, **state})
+
+
 @app.route('/analyze', methods=['POST'])
 @REQUEST_DURATION.time()
 def analyze_video():
-    """Analyze video for scenes and content."""
+    """Queue and analyze video for scenes and content."""
     REQUEST_COUNT.inc()
-    
+
     try:
         data = request.get_json()
-        
-        if not data or 'video_path' not in data:
+        job = {
+            'id': str(uuid.uuid4()),
+            'payload': data,
+            'submitted_at': datetime.now().isoformat(),
+            'event': threading.Event(),
+            'result': None,
+            'status_code': 500,
+        }
+
+        try:
+            analysis_queue.put_nowait(job)
+        except queue.Full:
             ERROR_COUNT.inc()
-            return jsonify({'error': 'No video_path provided'}), 400
-        
-        video_path = data['video_path']
-        sample_count = data.get('sample_count', 3)
-        
-        # Get scene detection method and parameters
-        scene_method = (data.get('scene_detection_method', 'transnetv2') or 'transnetv2').lower()
-        ffmpeg_threshold = data.get('ffmpeg_scene_threshold', 0.3)
-        sampling_interval = data.get('sampling_interval', 30)
-        
-        # Check if file exists
-        if not os.path.exists(video_path):
+            return jsonify({
+                'error': 'Analysis queue is full',
+                'queue': _queue_snapshot()
+            }), 429
+
+        if not job['event'].wait(timeout=ANALYSIS_QUEUE_WAIT_TIMEOUT_SECONDS):
             ERROR_COUNT.inc()
-            return jsonify({'error': 'Video file not found'}), 404
-        
-        logger.info("Analyzing video: %s using method=%s", video_path, scene_method)
-        
-        # Extract scenes using specified method
-        scenes = extract_scenes(
-            video_path, 
-            method=scene_method,
-            ffmpeg_scene_threshold=ffmpeg_threshold,
-            sampling_interval=sampling_interval
-        )
-        logger.info("Found %d scenes using %s method", len(scenes), scene_method)
-        
-        # If no scenes detected, use a minimal segmentation approach
-        # This should not create artificial scenes, but ensure we analyze the video
-        if len(scenes) == 0:
-            logger.warning("No scenes detected by FFmpeg, analyzing entire video as single scene")
-            probe_cmd = ['ffprobe', '-v', 'error', '-show_entries', 'format=duration', 
-                        '-of', 'default=noprint_wrappers=1:nokey=1', video_path]
-            duration = float(subprocess.check_output(probe_cmd).decode().strip())
-            scenes = [{'start': 0, 'end': duration, 'duration': duration}]
-        
-        # Analyze each scene using real AI services
-        results = []
-        
-        for i, scene in enumerate(scenes):
-            try:
-                timestamps = _build_sample_timestamps(scene, sample_count, len(scenes))
-                
-                # Extract and analyze frames
-                nudity_scores = []
-                violence_scores = []
-                immodesty_scores = []
-                
-                for timestamp in timestamps:
-                    frame_path = None
-                    try:
-                        # Extract frame
-                        frame_path = extract_frame(
-                            video_path,
-                            timestamp,
-                            f"/tmp/processing/scene_{i}_frame_{timestamp:.3f}.jpg"
-                        )
-                        
-                        # Call NSFW detector for nudity/immodesty
-                        with open(frame_path, 'rb') as f:
-                            files = {'image': f}
-                            nsfw_response = session.post(f"{NSFW_DETECTOR_URL}/analyze", 
-                                                         files=files, timeout=60)
-                        
-                        if nsfw_response.status_code == 503:
-                            ERROR_COUNT.inc()
-                            return jsonify({
-                                'error': 'Downstream service not ready',
-                                'service': 'nsfw-detector',
-                                'degraded': True
-                            }), 503
-                        if nsfw_response.status_code == 200:
-                            nsfw_data = nsfw_response.json()
-                            nudity_scores.append(nsfw_data.get('nudity', 0))
-                            immodesty_scores.append(nsfw_data.get('immodesty', 0))
-                        
-                        # Call content classifier for violence
-                        with open(frame_path, 'rb') as f:
-                            files = {'image': f}
-                            violence_response = session.post(f"{CONTENT_CLASSIFIER_URL}/classify", 
-                                                            files=files, timeout=60)
-                        
-                        if violence_response.status_code == 503:
-                            ERROR_COUNT.inc()
-                            return jsonify({
-                                'error': 'Downstream service not ready',
-                                'service': 'content-classifier',
-                                'degraded': True
-                            }), 503
-                        if violence_response.status_code == 200:
-                            violence_data = violence_response.json()
-                            violence_scores.append(_extract_violence_score(violence_data))
-                    except (requests.RequestException, OSError, subprocess.CalledProcessError, ValueError, KeyError) as e:
-                        logger.error("Error analyzing frame at %s: %s", timestamp, e)
-                        continue
-                    finally:
-                        if frame_path and os.path.exists(frame_path):
-                            os.remove(frame_path)
-                
-                # Calculate average scores for the scene
-                avg_nudity = sum(nudity_scores) / len(nudity_scores) if nudity_scores else 0
-                avg_violence = sum(violence_scores) / len(violence_scores) if violence_scores else 0
-                avg_immodesty = sum(immodesty_scores) / len(immodesty_scores) if immodesty_scores else 0
-                
-                # Use max score as confidence (most confident detection)
-                confidence = max([avg_nudity, avg_violence, avg_immodesty]) if any([nudity_scores, violence_scores, immodesty_scores]) else 0
-                
-                result = {
-                    'start': scene['start'],
-                    'end': scene['end'],
-                    'duration': scene['duration'],
-                    'analysis': {
-                        'nudity': avg_nudity,
-                        'immodesty': avg_immodesty,
-                        'violence': avg_violence,
-                        'confidence': confidence
-                    }
-                }
-                results.append(result)
-                
-                logger.info("Scene %d/%d: violence=%.3f, nudity=%.3f, immodesty=%.3f", i+1, len(scenes), avg_violence, avg_nudity, avg_immodesty)
-                
-            except (requests.RequestException, OSError, subprocess.CalledProcessError, ValueError, KeyError) as e:
-                logger.error("Error analyzing scene %d: %s", i, e)
-                # Add scene with zero scores if analysis fails
-                results.append({
-                    'start': scene['start'],
-                    'end': scene['end'],
-                    'duration': scene['duration'],
-                    'analysis': {
-                        'nudity': 0,
-                        'immodesty': 0,
-                        'violence': 0,
-                        'confidence': 0
-                    }
-                })
-        
-        return jsonify({
-            'success': True,
-            'schema_version': '1.0',
-            'video_path': video_path,
-            'scene_count': len(scenes),
-            'scenes': results,
-            'model_versions': {
-                'nsfw-mobilenet': '1.0.0',
-                'violence-classifier': '1.0.0'
-            },
-            'timestamp': datetime.now().isoformat()
-        })
-        
-    except (ValueError, FileNotFoundError, requests.RequestException, subprocess.CalledProcessError) as e:
+            return jsonify({
+                'error': 'Timed out waiting for queued analysis to complete',
+                'job_id': job['id'],
+                'queue': _queue_snapshot()
+            }), 503
+
+        return jsonify(job['result']), int(job['status_code'])
+
+    except Exception as e:  # noqa: BLE001 - endpoint must return structured errors
         ERROR_COUNT.inc()
         logger.error("Error processing request: %s", e)
         return jsonify({'error': str(e)}), 500
@@ -801,10 +1026,11 @@ if __name__ == '__main__':
     ffmpeg_amf_available = amf_ok
     ffmpeg_vaapi_available = vaapi_ok
     
-    # Load TransNetV2 model
-    load_transnetv2()
-    
     # Create temp directory for frame processing
     os.makedirs('/tmp/processing', exist_ok=True)
+
+    # Start background workers.
+    threading.Thread(target=_analysis_queue_worker, daemon=True, name='analysis-queue-worker').start()
+    threading.Thread(target=_transnet_idle_unload_worker, daemon=True, name='transnet-idle-unloader').start()
     
     app.run(host='0.0.0.0', port=port, debug=False)

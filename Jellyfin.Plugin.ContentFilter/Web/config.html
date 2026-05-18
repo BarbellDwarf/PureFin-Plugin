@@ -162,7 +162,23 @@
                                    oninput="document.getElementById('samplingIntervalValue').textContent = this.value" />
                             <div class="fieldDescription">Debug only — fixed-size chunks, not real scene boundaries. Not recommended for production use.</div>
                         </div>
-                        
+
+                        <h3 style="margin-top: 20px;">Analysis Queue Controls (Admin)</h3>
+                        <div class="fieldDescription" style="margin-bottom: 10px;">
+                            Pause/resume queued AI analysis jobs without stopping containers. This is useful when you want to temporarily free compute resources.
+                        </div>
+                        <div id="queueStatusPanel" style="background: #1f1f1f; border: 1px solid #555; border-radius: 4px; padding: 10px; margin-bottom: 10px;">
+                            <div><strong>Status:</strong> <span id="queueStatusText">Loading...</span></div>
+                            <div><strong>Pending:</strong> <span id="queuePendingJobs">-</span> | <strong>Active:</strong> <span id="queueActiveJobs">-</span></div>
+                            <div><strong>Processed:</strong> <span id="queueProcessedJobs">-</span> | <strong>Failed:</strong> <span id="queueFailedJobs">-</span></div>
+                            <div><strong>Model auto-unload:</strong> <span id="queueModelUnloadSeconds">-</span> seconds idle</div>
+                        </div>
+                        <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px;">
+                            <button is="emby-button" type="button" class="raised" id="refreshQueueStatusButton">Refresh Queue Status</button>
+                            <button is="emby-button" type="button" class="raised" id="pauseQueueButton">Pause Queue</button>
+                            <button is="emby-button" type="button" class="raised" id="resumeQueueButton">Resume Queue</button>
+                        </div>
+                         
                         <div class="checkboxContainer">
                             <label>
                                 <input type="checkbox" is="emby-checkbox" id="preferCommunityData" />
@@ -206,6 +222,93 @@
                 ffmpegContainer.style.display = method === 'ffmpeg' ? 'block' : 'none';
                 samplingContainer.style.display = method === 'sampling' ? 'block' : 'none';
                 samplingWarning.style.display = method === 'sampling' ? 'block' : 'none';
+            }
+
+            function getAuthHeaders(includeJsonContentType) {
+                var headers = {};
+                if (includeJsonContentType) {
+                    headers['Content-Type'] = 'application/json';
+                }
+                if (ApiClient.accessToken) {
+                    headers['X-Emby-Authorization'] = 'MediaBrowser Token=' + ApiClient.accessToken;
+                }
+                return headers;
+            }
+
+            function renderQueueStatus(data) {
+                var paused = !!data.paused;
+                var statusText = paused ? 'Paused' : 'Running';
+                if (paused && data.pause_reason) {
+                    statusText += ' (' + data.pause_reason + ')';
+                }
+
+                document.getElementById('queueStatusText').textContent = statusText;
+                document.getElementById('queuePendingJobs').textContent = data.pending_jobs != null ? data.pending_jobs : '-';
+                document.getElementById('queueActiveJobs').textContent = data.active_jobs != null ? data.active_jobs : '-';
+                document.getElementById('queueProcessedJobs').textContent = data.processed_jobs != null ? data.processed_jobs : '-';
+                document.getElementById('queueFailedJobs').textContent = data.failed_jobs != null ? data.failed_jobs : '-';
+                document.getElementById('queueModelUnloadSeconds').textContent = data.model_idle_unload_seconds != null ? data.model_idle_unload_seconds : '-';
+
+                document.getElementById('pauseQueueButton').disabled = paused;
+                document.getElementById('resumeQueueButton').disabled = !paused;
+            }
+
+            function refreshQueueStatus() {
+                var url = ApiClient.getUrl('Plugins/PureFin/Queue/Status');
+                return fetch(url, {
+                    method: 'GET',
+                    headers: getAuthHeaders(false)
+                }).then(function (response) {
+                    if (!response.ok) {
+                        throw new Error('Queue status request failed (' + response.status + ')');
+                    }
+                    return response.json();
+                }).then(function (data) {
+                    renderQueueStatus(data);
+                }).catch(function (error) {
+                    document.getElementById('queueStatusText').textContent = 'Unavailable';
+                    document.getElementById('queuePendingJobs').textContent = '-';
+                    document.getElementById('queueActiveJobs').textContent = '-';
+                    document.getElementById('queueProcessedJobs').textContent = '-';
+                    document.getElementById('queueFailedJobs').textContent = '-';
+                    document.getElementById('queueModelUnloadSeconds').textContent = '-';
+                    console.error('Queue status error', error);
+                });
+            }
+
+            function pauseQueue() {
+                var url = ApiClient.getUrl('Plugins/PureFin/Queue/Pause');
+                return fetch(url, {
+                    method: 'POST',
+                    headers: getAuthHeaders(true),
+                    body: JSON.stringify({ reason: 'Paused from PureFin Jellyfin UI' })
+                }).then(function (response) {
+                    if (!response.ok) {
+                        throw new Error('Queue pause failed (' + response.status + ')');
+                    }
+                    return response.json();
+                }).then(function (data) {
+                    renderQueueStatus(data);
+                }).catch(function (error) {
+                    Dashboard.alert('Unable to pause queue: ' + error.message);
+                });
+            }
+
+            function resumeQueue() {
+                var url = ApiClient.getUrl('Plugins/PureFin/Queue/Resume');
+                return fetch(url, {
+                    method: 'POST',
+                    headers: getAuthHeaders(false)
+                }).then(function (response) {
+                    if (!response.ok) {
+                        throw new Error('Queue resume failed (' + response.status + ')');
+                    }
+                    return response.json();
+                }).then(function (data) {
+                    renderQueueStatus(data);
+                }).catch(function (error) {
+                    Dashboard.alert('Unable to resume queue: ' + error.message);
+                });
             }
 
             document.getElementById('PureFinConfigPage').addEventListener('pageshow', function () {
@@ -254,7 +357,20 @@
                     
                     updateSceneMethodFields();
                     Dashboard.hideLoadingMsg();
+                    refreshQueueStatus();
                 });
+            });
+
+            document.getElementById('refreshQueueStatusButton').addEventListener('click', function () {
+                refreshQueueStatus();
+            });
+
+            document.getElementById('pauseQueueButton').addEventListener('click', function () {
+                pauseQueue();
+            });
+
+            document.getElementById('resumeQueueButton').addEventListener('click', function () {
+                resumeQueue();
             });
 
             document.getElementById('PureFinConfigForm').addEventListener('submit', function (e) {

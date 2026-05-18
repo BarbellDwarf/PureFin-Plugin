@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- **Jellyfin Server**: 10.9 or higher
+- **Jellyfin Server**: 10.11.x
 - **Docker Engine**: 24.0 or higher (for AI services)
 - **Python**: 3.10+ (on the host running AI services)
 - **System Requirements**:
@@ -19,7 +19,7 @@ This is the recommended approach for production use.
 2. Click **+** to add a new repository.
 3. Enter the URL:
    ```
-   https://barbellDwarf.github.io/PureFin-Plugin/repository.json
+   https://BarbellDwarf.github.io/PureFin-Plugin/repository.json
    ```
 4. Click **Save**.
 5. Go to **Catalog**, find **PureFin**, and click **Install**.
@@ -50,6 +50,13 @@ The plugin calls a local scene-analyzer service. All AI services run in Docker.
 cd ai-services
 docker compose up -d
 ```
+
+By default, AI services auto-unload models after idle time and lazy-load them on the next request. You can override this with environment variables in `ai-services/docker-compose.yml`:
+
+- `MODEL_IDLE_UNLOAD_SECONDS` (default `900`)
+- `MODEL_IDLE_CHECK_SECONDS` (default `30`)
+- `ANALYSIS_QUEUE_MAX_SIZE` (scene-analyzer queue, default `8`)
+- `ANALYSIS_QUEUE_WAIT_TIMEOUT_SECONDS` (default `3600`)
 
 ### Wait for Readiness
 
@@ -85,7 +92,8 @@ After installation, configure the plugin:
 1. Go to **Dashboard → Plugins → PureFin → Settings**.
 2. Set `AiServiceBaseUrl` to `http://localhost:3002` (this is the default).
 3. Adjust sensitivity and category toggles as needed.
-4. Go to **Dashboard → Scheduled Tasks** and run **Analyze Content Library** for initial analysis.
+4. Go to **Dashboard → Scheduled Tasks** and run **Analyze Library for PureFin** for initial analysis.
+5. Optional: use **Analysis Queue Controls (Admin)** in the plugin page to pause/resume queue processing.
 
 ---
 

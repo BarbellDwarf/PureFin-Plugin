@@ -54,6 +54,33 @@ The `Sensitivity` setting overrides the individual NSFW and violence threshold s
 
 ---
 
+## Analysis Queue Controls (Admin)
+
+The PureFin settings page includes queue controls backed by the scene-analyzer service:
+
+- **Refresh Queue Status**
+- **Pause Queue**
+- **Resume Queue**
+
+Queue status includes pending jobs, active jobs, processed count, failed count, and idle-unload timeout.
+
+When paused, new analysis requests are still accepted and queued, but processing is halted until resumed.
+
+---
+
+## AI Service Runtime Controls (Docker)
+
+`ai-services/docker-compose.yml` exposes environment variables for queue/resource behavior:
+
+| Name | Default | Description |
+|------|---------|-------------|
+| `MODEL_IDLE_UNLOAD_SECONDS` | `900` | Unload in-memory AI models after this many idle seconds |
+| `MODEL_IDLE_CHECK_SECONDS` | `30` | Idle-unload check interval |
+| `ANALYSIS_QUEUE_MAX_SIZE` | `8` | Maximum queued jobs in scene-analyzer |
+| `ANALYSIS_QUEUE_WAIT_TIMEOUT_SECONDS` | `3600` | Max API wait time for queued request completion |
+
+---
+
 ## Backup and Restore
 
 ```bash
