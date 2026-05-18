@@ -204,38 +204,27 @@ public class AnalyzeLibraryTask : IScheduledTask
             var segments = new List<Segment>();
             foreach (var scene in responseData.Scenes)
             {
-                // Store ALL raw AI scores - filtering will be applied dynamically at playback time
-                var rawScores = new Dictionary<string, double>();
-                
-                // Always store the raw scores, regardless of thresholds
-                if (scene.Analysis.Nudity > 0)
-                    rawScores["nudity"] = scene.Analysis.Nudity;
-                    
-                if (scene.Analysis.Immodesty > 0)
-                    rawScores["immodesty"] = scene.Analysis.Immodesty;
-                    
-                if (scene.Analysis.Violence > 0)
-                    rawScores["violence"] = scene.Analysis.Violence;
-
-                // Only create a segment if there are any detected scores above minimum threshold (e.g. 0.05)
-                const double minimumDetectionThreshold = 0.05;
-                var hasContent = rawScores.Values.Any(score => score > minimumDetectionThreshold);
-                
-                if (hasContent)
+                // Store ALL raw AI scores for every scene so thresholds can be changed without re-analysis.
+                var rawScores = new Dictionary<string, double>
                 {
-                    segments.Add(new Segment
-                    {
-                        Start = scene.Start,
-                        End = scene.End,
-                        RawScores = rawScores, // Store raw AI scores
-                        Categories = Array.Empty<string>(), // Will be computed dynamically based on current config
-                        Action = "skip", // Default action for detected content
-                        Source = "ai"
-                    });
-                }
+                    ["nudity"] = scene.Analysis.Nudity,
+                    ["immodesty"] = scene.Analysis.Immodesty,
+                    ["violence"] = scene.Analysis.Violence
+                };
+
+                segments.Add(new Segment
+                {
+                    Start = scene.Start,
+                    End = scene.End,
+                    RawScores = rawScores, // Store raw AI scores
+                    Categories = Array.Empty<string>(), // Will be computed dynamically based on current config
+                    Action = "skip", // Default action for detected content
+                    Source = "ai"
+                });
             }
 
-            _logger.LogInformation("Generated {Count} segments with raw AI scores - filtering will be applied dynamically based on current UI thresholds", 
+            _logger.LogInformation(
+                "Generated {Count} segments with raw AI scores - filtering will be applied dynamically based on current UI thresholds",
                 segments.Count);
             return segments;
         }
