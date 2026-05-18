@@ -218,3 +218,77 @@ For issues related to:
 - [NVIDIA Container Toolkit Documentation](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/overview.html)
 - [Docker Compose GPU Support](https://docs.docker.com/compose/gpu-support/)
 - [CUDA Compatibility Guide](https://docs.nvidia.com/deploy/cuda-compatibility/)
+
+---
+
+## AMD GPU on Windows (WSL2 Docker)
+
+AMD GPUs on Windows use ROCm via WSL2 device passthrough (`/dev/kfd` and `/dev/dri`). PyTorch ROCm uses a CUDA API shim so `torch.cuda.is_available()` returns `True` when a ROCm build is used — no code changes are needed.
+
+### Requirements
+
+- **AMD GPU driver 22.40+** — Adrenalin Edition 22.40 or later (provides WSL2 ROCm support)
+- **ROCm 5.7+ compatible GPU** — RDNA 1/2/3 (RX 5000/6000/7000) or Vega 10+
+- **Docker Desktop 4.22+** with WSL2 backend enabled
+
+### Setup steps
+
+1. **Check your AMD GPU** (run in PowerShell):
+   ```powershell
+   wmic path win32_VideoController get name
+   ```
+
+2. **Verify WSL2 exposes the ROCm device** (run in a WSL terminal):
+   ```bash
+   ls /dev/kfd
+   ```
+   This file must exist. If it is missing, your driver does not support ROCm WSL2 passthrough — update your AMD driver and retry.
+
+3. **Check DRI render nodes are available** (WSL terminal):
+   ```bash
+   ls /dev/dri/
+   ```
+   You should see `renderD128` (or similar). This is the render node the ROCm runtime uses.
+
+4. **Run services with AMD GPU acceleration**:
+   ```powershell
+   cd ai-services
+   docker compose -f docker-compose.yml -f docker-compose.amd.yml up --build
+   ```
+
+5. **If you get "device not found" errors** inside the container, your AMD driver version does not support ROCm WSL2 passthrough. Fall back to CPU mode:
+   ```powershell
+   docker compose up --build
+   ```
+
+### GFX version overrides
+
+Some AMD GPUs require an environment variable to bypass ROCm GFX version checks. Edit `docker-compose.amd.yml` and uncomment `HSA_OVERRIDE_GFX_VERSION`:
+
+| GPU series          | Value to try  |
+|---------------------|---------------|
+| RX 7000 (RDNA 3)    | `11.0.0`      |
+| RX 6000 (RDNA 2)    | `10.3.0`      |
+| RX 5000 (RDNA 1)    | `9.0.0`       |
+| Vega 10 / Vega 20   | `9.0.6`       |
+
+Example (in `docker-compose.amd.yml`):
+```yaml
+environment:
+  - HSA_OVERRIDE_GFX_VERSION=10.3.0
+```
+
+### Limitations
+
+- **nsfw-detector (TensorFlow) runs CPU-only in AMD mode.** TensorFlow ROCm requires a separate `tensorflow-rocm` build with a different Docker base image. This is not included in the AMD overlay. The service will still work — it just uses the CPU.
+- **For CPU-only testing** (no GPU needed), use the base compose file with no overlay:
+  ```powershell
+  docker compose up --build
+  ```
+- **ROC_ENABLE_PRE_VEGA**: If you have a pre-Vega AMD GPU and ROCm refuses to initialise, uncomment `ROC_ENABLE_PRE_VEGA=1` in `docker-compose.amd.yml`.
+
+### AMD References
+
+- [ROCm WSL2 Documentation](https://rocm.docs.amd.com/en/latest/deploy/linux/os-native/install-rocm.html)
+- [AMD ROCm GitHub](https://github.com/RadeonOpenCompute/ROCm)
+- [PyTorch ROCm](https://pytorch.org/get-started/locally/) — select ROCm under the PyTorch install matrix

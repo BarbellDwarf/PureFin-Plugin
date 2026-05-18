@@ -15,7 +15,7 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Plugin.ContentFilter;
 
 /// <summary>
-/// Registers Content Filter plugin services with Jellyfin's DI container.
+/// Registers PureFin plugin services with Jellyfin's DI container.
 /// </summary>
 public class PluginServiceRegistrator : IPluginServiceRegistrator
 {
@@ -29,7 +29,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
 }
 
 /// <summary>
-/// Hosted service for Content Filter plugin initialization.
+/// Hosted service for PureFin plugin initialization.
 /// </summary>
 public class PluginEntryPoint : IHostedService, IDisposable
 {
@@ -59,7 +59,7 @@ public class PluginEntryPoint : IHostedService, IDisposable
     /// <inheritdoc />
     public async Task StartAsync(CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Content Filter plugin starting up");
+        _logger.LogInformation("PureFin plugin starting up");
 
         try
         {
@@ -70,18 +70,18 @@ public class PluginEntryPoint : IHostedService, IDisposable
                 _segmentStore,
                 _loggerFactory.CreateLogger<PlaybackMonitor>());
 
-            _logger.LogInformation("Content Filter plugin started successfully - SegmentStore and PlaybackMonitor initialized");
+            _logger.LogInformation("PureFin plugin started successfully - SegmentStore and PlaybackMonitor initialized");
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error starting Content Filter plugin");
+            _logger.LogError(ex, "Error starting PureFin plugin");
         }
     }
 
     /// <inheritdoc />
     public Task StopAsync(CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Content Filter plugin stopping");
+        _logger.LogInformation("PureFin plugin stopping");
 
         try
         {

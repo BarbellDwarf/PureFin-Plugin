@@ -2,15 +2,15 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <title>Content Filter Configuration</title>
+    <title>PureFin Configuration</title>
 </head>
 <body>
-    <div id="ContentFilterConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-select,emby-checkbox">
+    <div id="PureFinConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-select,emby-checkbox">
         <div data-role="content">
             <div class="content-primary">
-                <form id="ContentFilterConfigForm">
+                <form id="PureFinConfigForm">
                     <div class="verticalSection">
-                        <h2 class="sectionTitle">Content Filter Settings</h2>
+                        <h2 class="sectionTitle">PureFin Settings</h2>
                         
                         <div class="checkboxContainer">
                             <label>
@@ -104,7 +104,25 @@
                         <div class="inputContainer">
                             <label class="inputLabel" for="aiServiceBaseUrl">AI Service Base URL:</label>
                             <input is="emby-input" type="text" id="aiServiceBaseUrl" name="aiServiceBaseUrl" />
-                            <div class="fieldDescription">Base URL for AI content analysis services</div>
+                            <div class="fieldDescription">Base URL for AI content analysis services (e.g. http://localhost:3002 or http://host.docker.internal:3002)</div>
+                        </div>
+
+                        <h3 style="margin-top: 20px;">Path Mapping (Docker)</h3>
+                        <div class="fieldDescription" style="margin-bottom: 15px;">
+                            When Jellyfin and the AI services run in separate Docker containers, their media paths differ.
+                            Set the root path Jellyfin uses and the corresponding root path the AI services use.
+                        </div>
+
+                        <div class="inputContainer">
+                            <label class="inputLabel" for="jellyfinMediaPath">Jellyfin Media Root Path:</label>
+                            <input is="emby-input" type="text" id="jellyfinMediaPath" name="jellyfinMediaPath" placeholder="/data/media/movies" />
+                            <div class="fieldDescription">The media root path as seen by Jellyfin (e.g. /data/media/movies or D:\Media\Movies)</div>
+                        </div>
+
+                        <div class="inputContainer">
+                            <label class="inputLabel" for="aiServiceMediaPath">AI Service Media Root Path:</label>
+                            <input is="emby-input" type="text" id="aiServiceMediaPath" name="aiServiceMediaPath" placeholder="/mnt/media" />
+                            <div class="fieldDescription">The same media root path as seen by the AI service containers (e.g. /mnt/media)</div>
                         </div>
                         
                         <h3 style="margin-top: 20px;">Scene Detection Method</h3>
@@ -115,10 +133,14 @@
                         <div class="selectContainer">
                             <label class="selectLabel" for="sceneDetectionMethod">Detection Method:</label>
                             <select is="emby-select" id="sceneDetectionMethod" name="sceneDetectionMethod" onchange="updateSceneMethodFields()">
-                                <option value="transnetv2">TransNetV2 AI (Recommended - Fast & Accurate)</option>
-                                <option value="ffmpeg">FFmpeg Scene Detection (Slow for long videos)</option>
-                                <option value="sampling">Fixed Interval Sampling (Fastest)</option>
+                                <option value="transnetv2">TransNetV2 AI (Recommended — variable shot-boundary detection)</option>
+                                <option value="ffmpeg">FFmpeg Scene Detection (variable, CPU-based fallback)</option>
+                                <option value="sampling">Fixed Interval Sampling (debug/diagnostic only — inaccurate)</option>
                             </select>
+                        </div>
+
+                        <div id="samplingWarningBanner" style="display: none; background: #5c1a00; color: #ffcba4; border: 1px solid #c0440a; border-radius: 4px; padding: 10px 14px; margin-top: 8px;">
+                            ⚠️ <strong>Fixed Interval Sampling is not scene-accurate.</strong> It divides the video into equally-spaced chunks regardless of actual scene boundaries, which causes missed or incorrectly bounded segments. This mode is intended for debugging only. Use TransNetV2 or FFmpeg for real analysis.
                         </div>
                         
                         <div class="inputContainer" id="ffmpegThresholdContainer" style="display: none;">
@@ -138,7 +160,7 @@
                             <input is="emby-input" type="range" id="samplingIntervalSeconds" name="samplingIntervalSeconds" 
                                    min="10" max="180" step="10" value="30" 
                                    oninput="document.getElementById('samplingIntervalValue').textContent = this.value" />
-                            <div class="fieldDescription">How often to sample frames (30-60s recommended for balance)</div>
+                            <div class="fieldDescription">Debug only — fixed-size chunks, not real scene boundaries. Not recommended for production use.</div>
                         </div>
                         
                         <div class="checkboxContainer">
@@ -171,7 +193,7 @@
         </div>
 
         <script type="text/javascript">
-            var ContentFilterConfig = {
+            var PureFinConfig = {
                 pluginUniqueId: 'a3f8c6e0-4b2a-4d3c-8e9f-1a2b3c4d5e6f'
             };
 
@@ -179,14 +201,16 @@
                 var method = document.getElementById('sceneDetectionMethod').value;
                 var ffmpegContainer = document.getElementById('ffmpegThresholdContainer');
                 var samplingContainer = document.getElementById('samplingIntervalContainer');
+                var samplingWarning = document.getElementById('samplingWarningBanner');
                 
                 ffmpegContainer.style.display = method === 'ffmpeg' ? 'block' : 'none';
                 samplingContainer.style.display = method === 'sampling' ? 'block' : 'none';
+                samplingWarning.style.display = method === 'sampling' ? 'block' : 'none';
             }
 
-            document.getElementById('ContentFilterConfigPage').addEventListener('pageshow', function () {
+            document.getElementById('PureFinConfigPage').addEventListener('pageshow', function () {
                 Dashboard.showLoadingMsg();
-                ApiClient.getPluginConfiguration(ContentFilterConfig.pluginUniqueId).then(function (config) {
+                ApiClient.getPluginConfiguration(PureFinConfig.pluginUniqueId).then(function (config) {
                     document.getElementById('enableNudity').checked = config.EnableNudity;
                     document.getElementById('enableImmodesty').checked = config.EnableImmodesty;
                     document.getElementById('enableViolence').checked = config.EnableViolence;
@@ -194,6 +218,8 @@
                     document.getElementById('sensitivity').value = config.Sensitivity;
                     document.getElementById('segmentDirectory').value = config.SegmentDirectory;
                     document.getElementById('aiServiceBaseUrl').value = config.AiServiceBaseUrl;
+                    document.getElementById('jellyfinMediaPath').value = config.JellyfinMediaPath || '';
+                    document.getElementById('aiServiceMediaPath').value = config.AiServiceMediaPath || '/mnt/media';
                     document.getElementById('preferCommunityData').checked = config.PreferCommunityData;
                     document.getElementById('enableOsdFeedback').checked = config.EnableOsdFeedback;
                     
@@ -231,11 +257,11 @@
                 });
             });
 
-            document.getElementById('ContentFilterConfigForm').addEventListener('submit', function (e) {
+            document.getElementById('PureFinConfigForm').addEventListener('submit', function (e) {
                 e.preventDefault();
                 Dashboard.showLoadingMsg();
 
-                ApiClient.getPluginConfiguration(ContentFilterConfig.pluginUniqueId).then(function (config) {
+                ApiClient.getPluginConfiguration(PureFinConfig.pluginUniqueId).then(function (config) {
                     config.EnableNudity = document.getElementById('enableNudity').checked;
                     config.EnableImmodesty = document.getElementById('enableImmodesty').checked;
                     config.EnableViolence = document.getElementById('enableViolence').checked;
@@ -243,6 +269,8 @@
                     config.Sensitivity = document.getElementById('sensitivity').value;
                     config.SegmentDirectory = document.getElementById('segmentDirectory').value;
                     config.AiServiceBaseUrl = document.getElementById('aiServiceBaseUrl').value;
+                    config.JellyfinMediaPath = document.getElementById('jellyfinMediaPath').value;
+                    config.AiServiceMediaPath = document.getElementById('aiServiceMediaPath').value;
                     config.PreferCommunityData = document.getElementById('preferCommunityData').checked;
                     config.EnableOsdFeedback = document.getElementById('enableOsdFeedback').checked;
                     
@@ -257,7 +285,7 @@
                     config.FfmpegSceneThreshold = parseFloat(document.getElementById('ffmpegSceneThreshold').value);
                     config.SamplingIntervalSeconds = parseInt(document.getElementById('samplingIntervalSeconds').value);
 
-                    ApiClient.updatePluginConfiguration(ContentFilterConfig.pluginUniqueId, config).then(function (result) {
+                    ApiClient.updatePluginConfiguration(PureFinConfig.pluginUniqueId, config).then(function (result) {
                         Dashboard.processPluginConfigurationUpdateResult(result);
                         
                         // Always hide loading message first to prevent infinite loading
@@ -288,9 +316,9 @@
                         }
                         throw new Error('Failed to fetch tasks');
                     }).then(function(tasks) {
-                        // Look for Content Filter analysis task
+                        // Look for PureFin analysis task
                         var analyzeTask = tasks.find(t => 
-                            t.Name === 'Analyze Library for Content Filter' || 
+                            t.Name === 'Analyze Library for PureFin' || 
                             t.Name === 'Analyze Library Content'
                         );
                         
@@ -305,10 +333,10 @@
                                 if (taskResponse.ok) {
                                     Dashboard.alert('Settings saved! Segment regeneration started in background.');
                                 } else {
-                                    Dashboard.alert('Settings saved! Please manually run "Analyze Library for Content Filter" task to apply new thresholds.');
+                                    Dashboard.alert('Settings saved! Please manually run "Analyze Library for PureFin" task to apply new thresholds.');
                                 }
                             }).catch(function() {
-                                Dashboard.alert('Settings saved! Please manually run "Analyze Library for Content Filter" task to apply new thresholds.');
+                                Dashboard.alert('Settings saved! Please manually run "Analyze Library for PureFin" task to apply new thresholds.');
                             });
                         } else {
                             Dashboard.alert('Settings saved! Analysis task not found - new thresholds will apply to future analyses.');

@@ -14,8 +14,8 @@ services:
     ports:
       - "3001:3000"
     volumes:
-      - ./models:/app/models:ro
-      - ./temp:/tmp/processing
+      - ${MODELS_PATH:-./models}:/app/models:ro
+      - ${TEMP_PATH:-./temp}:/tmp/processing
       - ${JELLYFIN_MEDIA_PATH:-/path/to/your/media}:/mnt/media:ro
     environment:
       - MODEL_PATH=/app/models
@@ -34,7 +34,7 @@ services:
     ports:
       - "3002:3000"
     volumes:
-      - ./temp:/tmp/processing
+      - ${TEMP_PATH:-./temp}:/tmp/processing
       - ${JELLYFIN_MEDIA_PATH:-/path/to/your/media}:/mnt/media:ro
       - ${SEGMENTS_PATH:-./segments}:/segments:rw
     environment:
@@ -58,8 +58,8 @@ services:
     ports:
       - "3004:3000"
     volumes:
-      - ./models:/app/models:ro
-      - ./temp:/tmp/processing
+      - ${MODELS_PATH:-./models}:/app/models:rw
+      - ${TEMP_PATH:-./temp}:/tmp/processing
       - ${JELLYFIN_MEDIA_PATH:-/path/to/your/media}:/mnt/media:ro
     environment:
       - MODEL_PATH=/app/models

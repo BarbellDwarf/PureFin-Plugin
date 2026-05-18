@@ -1,0 +1,49 @@
+# AMD GPU ROCm override for PureFin AI services
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.amd.yml up --build
+#
+# Requirements:
+#   - AMD driver 22.40+ (Adrenalin Edition)
+#   - ROCm 5.7+ compatible GPU (RDNA 1/2/3, Vega 10+)
+#   - Docker Desktop 4.22+ with WSL2 backend
+#   - /dev/kfd and /dev/dri must be present in WSL2 (verify with: ls /dev/kfd)
+#
+# This file only overrides keys that differ from docker-compose.yml.
+# All other service configuration (ports, volumes, healthchecks) is inherited.
+
+services:
+  scene-analyzer:
+    environment:
+      - USE_GPU=1
+      - USE_AMF=1
+      # ROCm GFX version override — uncomment and set if your GPU fails ROCm version checks.
+      # RX 6000/7000 series (RDNA 2/3): try 10.3.0
+      # RX 5000 series (RDNA 1):         try 9.0.0
+      # Vega 10/20:                       try 9.0.6
+      #- HSA_OVERRIDE_GFX_VERSION=10.3.0
+      #- ROC_ENABLE_PRE_VEGA=1
+    devices:
+      - /dev/kfd
+      - /dev/dri
+    group_add:
+      - video
+
+  content-classifier:
+    environment:
+      - USE_GPU=1
+      - USE_AMF=1
+      # Same GFX overrides as above — uncomment if needed
+      #- HSA_OVERRIDE_GFX_VERSION=10.3.0
+      #- ROC_ENABLE_PRE_VEGA=1
+    devices:
+      - /dev/kfd
+      - /dev/dri
+    group_add:
+      - video
+
+  # nsfw-detector uses TensorFlow. TF ROCm support requires a separate ROCm-enabled
+  # TensorFlow build (tensorflow-rocm) which uses a different Docker image and is not
+  # included here. nsfw-detector intentionally runs CPU-only in AMD mode.
+  # To enable TF ROCm, replace the nsfw-detector image with a tensorflow-rocm base
+  # and add the device/group_add overrides above.

@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>PureFin Segments</title>
+</head>
+<body>
+    <div id="PureFinSegmentsPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button">
+        <div data-role="content">
+            <div class="content-primary">
+                <div class="verticalSection">
+                    <h2 class="sectionTitle">PureFin Segments (Admin Only)</h2>
+                    <div class="fieldDescription" style="margin-bottom: 12px;">
+                        Search for a movie or episode and inspect the segment windows that PureFin will filter.
+                    </div>
+
+                    <div class="inputContainer">
+                        <label class="inputLabel" for="segmentSearch">Search Media:</label>
+                        <input is="emby-input" type="text" id="segmentSearch" placeholder="Type a movie or episode title" />
+                    </div>
+
+                    <button is="emby-button" type="button" class="raised" id="segmentSearchButton">
+                        <span>Search</span>
+                    </button>
+
+                    <div id="segmentSearchResults" style="margin-top: 16px;"></div>
+                </div>
+
+                <div class="verticalSection" id="segmentDetailsSection" style="display: none; margin-top: 24px;">
+                    <h3 id="segmentItemTitle" style="margin-top: 0;"></h3>
+                    <div id="segmentMeta" class="fieldDescription" style="margin-bottom: 12px;"></div>
+                    <div id="segmentTableContainer"></div>
+                </div>
+            </div>
+        </div>
+
+        <script type="text/javascript">
+            function getAuthHeader() {
+                if (ApiClient && ApiClient.accessToken) {
+                    return { 'X-Emby-Authorization': 'MediaBrowser Token=' + ApiClient.accessToken };
+                }
+                return {};
+            }
+
+            function renderSearchResults(items) {
+                var container = document.getElementById('segmentSearchResults');
+                container.innerHTML = '';
+
+                if (!items.length) {
+                    container.textContent = 'No matching media items found.';
+                    return;
+                }
+
+                items.forEach(function (item) {
+                    var row = document.createElement('div');
+                    row.style.marginBottom = '8px';
+
+                    var label = document.createElement('span');
+                    label.textContent = item.Name + ' (' + item.Type + ')';
+                    label.style.marginRight = '12px';
+
+                    var btn = document.createElement('button');
+                    btn.setAttribute('is', 'emby-button');
+                    btn.className = 'raised';
+                    btn.textContent = 'View Segments';
+                    btn.addEventListener('click', function () {
+                        loadSegments(item);
+                    });
+
+                    row.appendChild(label);
+                    row.appendChild(btn);
+                    container.appendChild(row);
+                });
+            }
+
+            function renderSegments(item, data) {
+                var section = document.getElementById('segmentDetailsSection');
+                var title = document.getElementById('segmentItemTitle');
+                var meta = document.getElementById('segmentMeta');
+                var tableContainer = document.getElementById('segmentTableContainer');
+
+                section.style.display = 'block';
+                title.textContent = item.Name + ' (' + item.Type + ')';
+                meta.textContent = 'Segments: ' + data.Segments.length + ' | Created: ' + new Date(data.CreatedAt).toLocaleString();
+
+                tableContainer.innerHTML = '';
+                if (!data.Segments.length) {
+                    tableContainer.textContent = 'No segments found for this item.';
+                    return;
+                }
+
+                var table = document.createElement('table');
+                table.className = 'detailTable';
+                table.style.width = '100%';
+
+                var header = document.createElement('tr');
+                ['Start', 'End', 'Duration', 'Action', 'Categories', 'Raw Scores'].forEach(function (name) {
+                    var th = document.createElement('th');
+                    th.textContent = name;
+                    th.style.textAlign = 'left';
+                    th.style.padding = '6px';
+                    header.appendChild(th);
+                });
+                table.appendChild(header);
+
+                data.Segments.forEach(function (segment) {
+                    var row = document.createElement('tr');
+
+                    function cell(text) {
+                        var td = document.createElement('td');
+                        td.textContent = text;
+                        td.style.padding = '6px';
+                        return td;
+                    }
+
+                    var categories = segment.Categories && segment.Categories.length
+                        ? segment.Categories.join(', ')
+                        : 'n/a';
+                    var rawScores = segment.RawScores
+                        ? Object.keys(segment.RawScores)
+                            .map(function (key) { return key + ':' + segment.RawScores[key].toFixed(2); })
+                            .join(', ')
+                        : 'n/a';
+
+                    row.appendChild(cell(segment.Start.toFixed(2) + 's'));
+                    row.appendChild(cell(segment.End.toFixed(2) + 's'));
+                    row.appendChild(cell((segment.End - segment.Start).toFixed(2) + 's'));
+                    row.appendChild(cell(segment.Action || 'skip'));
+                    row.appendChild(cell(categories));
+                    row.appendChild(cell(rawScores));
+                    table.appendChild(row);
+                });
+
+                tableContainer.appendChild(table);
+            }
+
+            function loadSegments(item) {
+                Dashboard.showLoadingMsg();
+                var url = ApiClient.getUrl('Plugins/PureFin/Segments/' + item.Id);
+
+                fetch(url, { headers: getAuthHeader() })
+                    .then(function (response) {
+                        if (response.status === 403) {
+                            throw new Error('Admin access required to view segments.');
+                        }
+                        if (!response.ok) {
+                            throw new Error('Segments not found for this item.');
+                        }
+                        return response.json();
+                    })
+                    .then(function (data) {
+                        renderSegments(item, data);
+                        Dashboard.hideLoadingMsg();
+                    })
+                    .catch(function (error) {
+                        Dashboard.hideLoadingMsg();
+                        Dashboard.alert(error.message);
+                    });
+            }
+
+            function runSearch() {
+                var term = document.getElementById('segmentSearch').value.trim();
+                if (!term) {
+                    Dashboard.alert('Enter a title to search.');
+                    return;
+                }
+
+                Dashboard.showLoadingMsg();
+                var userId = ApiClient.getCurrentUserId();
+                var query = {
+                    SearchTerm: term,
+                    IncludeItemTypes: 'Movie,Episode',
+                    Recursive: true,
+                    Limit: 25
+                };
+
+                ApiClient.getItems(userId, query).then(function (result) {
+                    renderSearchResults(result.Items || []);
+                    Dashboard.hideLoadingMsg();
+                }).catch(function (error) {
+                    Dashboard.hideLoadingMsg();
+                    Dashboard.alert('Search failed: ' + error.message);
+                });
+            }
+
+            document.getElementById('PureFinSegmentsPage').addEventListener('pageshow', function () {
+                document.getElementById('segmentSearch').value = '';
+                document.getElementById('segmentSearchResults').innerHTML = '';
+                document.getElementById('segmentDetailsSection').style.display = 'none';
+            });
+
+            document.getElementById('segmentSearchButton').addEventListener('click', runSearch);
+        </script>
+    </div>
+</body>
+</html>

@@ -8,6 +8,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Plugin.ContentFilter.Configuration;
 using Jellyfin.Plugin.ContentFilter.Models;
 using Jellyfin.Plugin.ContentFilter.Services;
 using MediaBrowser.Controller.Entities;
@@ -47,7 +48,7 @@ public class AnalyzeLibraryTask : IScheduledTask
     }
 
     /// <inheritdoc />
-    public string Name => "Analyze Library for Content Filter";
+    public string Name => "Analyze Library for PureFin";
 
     /// <inheritdoc />
     public string Key => "ContentFilterAnalyzeLibrary";
@@ -56,12 +57,12 @@ public class AnalyzeLibraryTask : IScheduledTask
     public string Description => "Analyzes media library for objectionable content";
 
     /// <inheritdoc />
-    public string Category => "Content Filter";
+    public string Category => "PureFin";
 
     /// <inheritdoc />
     public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Starting library analysis for content filter");
+        _logger.LogInformation("Starting library analysis for PureFin");
 
         // Get all video items
         var query = new InternalItemsQuery
@@ -109,7 +110,7 @@ public class AnalyzeLibraryTask : IScheduledTask
         {
             new TaskTriggerInfo
             {
-                Type = TaskTriggerInfo.TriggerDaily,
+                Type = TaskTriggerInfoType.DailyTrigger,
                 TimeOfDayTicks = TimeSpan.FromHours(3).Ticks
             }
         };
@@ -161,7 +162,7 @@ public class AnalyzeLibraryTask : IScheduledTask
             var sceneAnalyzerUrl = $"{config.AiServiceBaseUrl.TrimEnd('/')}/analyze";
             
             // Convert Jellyfin path to container path
-            var containerPath = ConvertToContainerPath(videoPath);
+            var containerPath = ConvertToContainerPath(videoPath, config);
             
             _logger.LogInformation("Calling scene analyzer at {Url} for {Path} (container path: {ContainerPath})", 
                 sceneAnalyzerUrl, videoPath, containerPath);
@@ -173,7 +174,7 @@ public class AnalyzeLibraryTask : IScheduledTask
             {
                 video_path = containerPath,
                 threshold = 0.15,  // Lower threshold to detect more scenes
-                sample_count = 5,
+                sample_count = 3,
                 scene_detection_method = config.SceneDetectionMethod ?? "transnetv2",
                 ffmpeg_scene_threshold = config.FfmpegSceneThreshold,
                 sampling_interval = config.SamplingIntervalSeconds
@@ -251,33 +252,55 @@ public class AnalyzeLibraryTask : IScheduledTask
     }
 
     /// <summary>
-    /// Convert Jellyfin file path to Docker container path.
+    /// Convert a Jellyfin file path to the path accessible by the AI service containers,
+    /// using the JellyfinMediaPath → AiServiceMediaPath mapping from plugin configuration.
     /// </summary>
-    /// <param name="jellyfInPath">The path as known by Jellyfin.</param>
-    /// <returns>The path as accessible by the Docker container.</returns>
-    private static string ConvertToContainerPath(string jellyfInPath)
+    private static string ConvertToContainerPath(string jellyfinPath, PluginConfiguration config)
     {
-        // Convert common Jellyfin mount paths to container paths
-        // This handles the case where Jellyfin uses /mnt/Media but container uses /mnt/media
-        if (jellyfInPath.StartsWith("/mnt/Media/", StringComparison.Ordinal))
+        // Config-driven mapping (preferred: set these in the plugin UI)
+        if (!string.IsNullOrEmpty(config.JellyfinMediaPath) && !string.IsNullOrEmpty(config.AiServiceMediaPath))
         {
-            return jellyfInPath.Replace("/mnt/Media/", "/mnt/media/");
+            var jfRoot = config.JellyfinMediaPath.TrimEnd('/', '\\');
+            var aiRoot = config.AiServiceMediaPath.TrimEnd('/');
+
+            // Normalise to forward slashes for comparison
+            var normalised = jellyfinPath.Replace('\\', '/');
+            var normalisedRoot = jfRoot.Replace('\\', '/');
+
+            if (normalised.StartsWith(normalisedRoot, StringComparison.OrdinalIgnoreCase))
+            {
+                return aiRoot + normalised[normalisedRoot.Length..];
+            }
         }
-        
-        // Handle Windows paths if Jellyfin is running on Windows
-        if (jellyfInPath.StartsWith("D:\\Movies\\", StringComparison.OrdinalIgnoreCase))
+
+        // Built-in fallbacks for common Docker Desktop on Windows patterns
+        var path = jellyfinPath.Replace('\\', '/');
+
+        // D:/Media/Movies/... → /mnt/media/...
+        if (path.StartsWith("D:/Media/Movies", StringComparison.OrdinalIgnoreCase))
         {
-            return jellyfInPath.Replace("D:\\Movies\\", "/mnt/media/").Replace("\\", "/");
+            return "/mnt/media" + path["D:/Media/Movies".Length..];
         }
-        
-        // Handle other common patterns
-        if (jellyfInPath.StartsWith("/media/", StringComparison.Ordinal))
+
+        // /data/media/movies/... (Jellyfin Docker default) → /mnt/media/...
+        if (path.StartsWith("/data/media/movies", StringComparison.OrdinalIgnoreCase))
         {
-            return jellyfInPath.Replace("/media/", "/mnt/media/");
+            return "/mnt/media" + path["/data/media/movies".Length..];
         }
-        
-        // If no conversion needed, return original path
-        return jellyfInPath;
+
+        // /mnt/Media/ → /mnt/media/  (case normalise)
+        if (path.StartsWith("/mnt/Media/", StringComparison.Ordinal))
+        {
+            return "/mnt/media" + path["/mnt/Media".Length..];
+        }
+
+        // /media/ → /mnt/media/
+        if (path.StartsWith("/media/", StringComparison.Ordinal))
+        {
+            return "/mnt/media" + path["/media".Length..];
+        }
+
+        return path;
     }
 
     /// <summary>

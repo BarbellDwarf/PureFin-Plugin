@@ -10,7 +10,7 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Plugin.ContentFilter;
 
 /// <summary>
-/// The main plugin class for Content Filter.
+/// The main plugin class for PureFin.
 /// </summary>
 public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 {
@@ -30,11 +30,11 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     {
         Instance = this;
         _logger = loggerFactory.CreateLogger<Plugin>();
-        _logger.LogInformation("Content Filter Plugin initialized");
+        _logger.LogInformation("PureFin Plugin initialized");
     }
 
     /// <inheritdoc />
-    public override string Name => "Content Filter";
+    public override string Name => "PureFin";
 
     /// <inheritdoc />
     public override Guid Id => Guid.Parse("a3f8c6e0-4b2a-4d3c-8e9f-1a2b3c4d5e6f");
@@ -53,6 +53,11 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             {
                 Name = this.Name,
                 EmbeddedResourcePath = string.Format("{0}.Web.config.html", GetType().Namespace)
+            },
+            new PluginPageInfo
+            {
+                Name = "Segments",
+                EmbeddedResourcePath = string.Format("{0}.Web.segments.html", GetType().Namespace)
             }
         };
     }

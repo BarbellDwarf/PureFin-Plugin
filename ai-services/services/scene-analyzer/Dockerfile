@@ -1,12 +1,12 @@
-FROM jrottenberg/ffmpeg:6.1-nvidia
+FROM python:3.11-slim
+
+ENV DEBIAN_FRONTEND=noninteractive
 
 # Ensure deterministic PyTorch behavior and silence CuBLAS warnings
 ENV CUBLAS_WORKSPACE_CONFIG=:4096:8
 
-# Install Python 3.11 and pip
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 python3-pip python3-venv ca-certificates curl \
-    && rm -rf /var/lib/apt/lists/*
+# Install ffmpeg
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -22,6 +22,4 @@ RUN mkdir -p /tmp/processing
 
 EXPOSE 3000
 
-# Override ffmpeg ENTRYPOINT from base image
-ENTRYPOINT []
 CMD ["python3", "app.py"]

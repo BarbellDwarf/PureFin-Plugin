@@ -189,13 +189,13 @@ public class PlaybackMonitor : IDisposable
             // Show OSD feedback if enabled
             if (config.EnableOsdFeedback)
             {
-                var message = $"Content Filtered: {string.Join(", ", activeCategories)}";
+                var message = $"PureFin Filtered: {string.Join(", ", activeCategories)}";
                 await _sessionManager.SendMessageCommand(
                     jellyfinSession.Id,
                     jellyfinSession.Id,
                     new MessageCommand
                     {
-                        Header = "Content Filter",
+                        Header = "PureFin",
                         Text = message,
                         TimeoutMs = 3000
                     },

@@ -77,6 +77,21 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool EnableOsdFeedback { get; set; } = false;
 
     /// <summary>
+    /// Gets or sets the Jellyfin media root path as seen by Jellyfin (host or container path).
+    /// Used to remap paths when forwarding analysis requests to AI services.
+    /// Example: /data/media/movies  (Jellyfin Docker default)
+    /// Leave empty to pass paths through unchanged.
+    /// </summary>
+    public string JellyfinMediaPath { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets the media root path as seen by the AI service containers.
+    /// Example: /mnt/media
+    /// Only used when JellyfinMediaPath is also set.
+    /// </summary>
+    public string AiServiceMediaPath { get; set; } = "/mnt/media";
+
+    /// <summary>
     /// Gets or sets the scene detection method (ffmpeg, sampling, transnetv2).
     /// </summary>
     public string SceneDetectionMethod { get; set; } = "transnetv2";
@@ -117,7 +132,9 @@ public class PluginConfiguration : BasePluginConfiguration
             EnableOsdFeedback = EnableOsdFeedback,
             SceneDetectionMethod = SceneDetectionMethod,
             FfmpegSceneThreshold = FfmpegSceneThreshold,
-            SamplingIntervalSeconds = SamplingIntervalSeconds
+            SamplingIntervalSeconds = SamplingIntervalSeconds,
+            JellyfinMediaPath = JellyfinMediaPath,
+            AiServiceMediaPath = AiServiceMediaPath
         };
     }
 }
