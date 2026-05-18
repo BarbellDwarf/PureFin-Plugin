@@ -65,11 +65,18 @@ public record Segment
             return false; // All filtering disabled
         }
 
+        RawScores.TryGetValue("immodesty", out var immodestyScore);
+
         foreach (var (category, score) in RawScores)
         {
             switch (category.ToLowerInvariant())
             {
                 case "nudity" when config.EnableNudity && score >= config.NudityThreshold:
+                    // Require immodesty confirmation to suppress false positives
+                    // (high nudity score but near-zero immodesty = likely model misclassification)
+                    if (config.NudityConfirmationMinImmodesty <= 0.0 || immodestyScore >= config.NudityConfirmationMinImmodesty)
+                        return true;
+                    break;
                 case "immodesty" when config.EnableImmodesty && score >= config.ImmodestyThreshold:
                 case "violence" when config.EnableViolence && score >= config.ViolenceThreshold:
                 case "general_violence" when config.EnableViolence && score >= config.ViolenceThreshold:
@@ -90,13 +97,15 @@ public record Segment
     public string[] GetActiveCategories(PluginConfiguration config)
     {
         var activeCategories = new List<string>();
+        RawScores.TryGetValue("immodesty", out var immodestyScore);
 
         foreach (var (category, score) in RawScores)
         {
             switch (category.ToLowerInvariant())
             {
                 case "nudity" when config.EnableNudity && score >= config.NudityThreshold:
-                    activeCategories.Add("nudity");
+                    if (config.NudityConfirmationMinImmodesty <= 0.0 || immodestyScore >= config.NudityConfirmationMinImmodesty)
+                        activeCategories.Add("nudity");
                     break;
                 case "immodesty" when config.EnableImmodesty && score >= config.ImmodestyThreshold:
                     activeCategories.Add("immodesty");

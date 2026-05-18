@@ -58,7 +58,7 @@ public class PlaybackMonitorTests
             Start = 0.0,
             End = 10.0,
             Action = "skip",
-            RawScores = new Dictionary<string, double> { ["nudity"] = 0.65 }
+            RawScores = new Dictionary<string, double> { ["nudity"] = 0.65, ["immodesty"] = 0.10 }
         };
 
         Assert.True(segment.ShouldFilter(config));
@@ -73,7 +73,7 @@ public class PlaybackMonitorTests
             Start = 0.0,
             End = 10.0,
             Action = "skip",
-            RawScores = new Dictionary<string, double> { ["nudity"] = 0.90 }
+            RawScores = new Dictionary<string, double> { ["nudity"] = 0.90, ["immodesty"] = 0.10 }
         };
 
         Assert.True(segment.ShouldFilter(config));
@@ -94,7 +94,7 @@ public class PlaybackMonitorTests
             Start = 5.0,
             End = 15.0,
             Action = "mute",
-            RawScores = new Dictionary<string, double> { ["nudity"] = 0.80 }
+            RawScores = new Dictionary<string, double> { ["nudity"] = 0.80, ["immodesty"] = 0.10 }
         };
 
         Assert.True(segment.ShouldFilter(config));
@@ -116,7 +116,7 @@ public class PlaybackMonitorTests
             Start = 0.0,
             End = 10.0,
             Action = "skip",
-            RawScores = new Dictionary<string, double> { ["nudity"] = 0.60 }
+            RawScores = new Dictionary<string, double> { ["nudity"] = 0.60, ["immodesty"] = 0.10 }
         };
 
         Assert.True(segment.ShouldFilter(strictConfig), "strict should catch score=0.60");
@@ -150,7 +150,8 @@ public class PlaybackMonitorTests
             Action = "skip",
             RawScores = new Dictionary<string, double>
             {
-                ["nudity"] = 0.80,       // above threshold → active
+                ["nudity"] = 0.80,       // above threshold, immodesty confirmed → active
+                ["immodesty"] = 0.10,    // confirms nudity detection
                 ["violence"] = 0.50,     // below threshold → not active
             }
         };
@@ -173,6 +174,7 @@ public class PlaybackMonitorTests
             RawScores = new Dictionary<string, double>
             {
                 ["nudity"] = 0.85,
+                ["immodesty"] = 0.10,    // confirms nudity detection
                 ["violence"] = 0.75
             }
         };

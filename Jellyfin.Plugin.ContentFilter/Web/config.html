@@ -86,6 +86,16 @@
                             <div class="fieldDescription">Current: 0.30 (moderate). Lower = more sensitive, Higher = less sensitive</div>
                         </div>
                         
+                        <div class="inputContainer">
+                            <label class="inputLabel" for="nudityConfirmationMinImmodesty">
+                                Nudity Confirmation (min immodesty): <span id="nudityConfirmationMinImmodestyValue">0.05</span>
+                            </label>
+                            <input is="emby-input" type="range" id="nudityConfirmationMinImmodesty" name="nudityConfirmationMinImmodesty" 
+                                   min="0.0" max="0.20" step="0.01" value="0.05" 
+                                   oninput="document.getElementById('nudityConfirmationMinImmodestyValue').textContent = this.value" />
+                            <div class="fieldDescription">Requires this minimum immodesty score to confirm a nudity detection. Eliminates false positives where the nudity detector fires on skin-toned backgrounds (e.g. war scenes). Set to 0.00 to disable and use nudity score alone.</div>
+                        </div>
+                        
                         <div class="selectContainer">
                             <label class="selectLabel" for="sensitivity">Sensitivity Level:</label>
                             <select is="emby-select" id="sensitivity" name="sensitivity">
@@ -331,6 +341,7 @@
                     var immodestyThreshold = config.ImmodestyThreshold || 0.20;
                     var violenceThreshold = config.ViolenceThreshold || 0.45;
                     var profanityThreshold = config.ProfanityThreshold || 0.30;
+                    var nudityConfirmMin = (config.NudityConfirmationMinImmodesty !== undefined) ? config.NudityConfirmationMinImmodesty : 0.05;
                     
                     document.getElementById('nudityThreshold').value = nudityThreshold;
                     document.getElementById('nudityThresholdValue').textContent = nudityThreshold;
@@ -343,6 +354,9 @@
                     
                     document.getElementById('profanityThreshold').value = profanityThreshold;
                     document.getElementById('profanityThresholdValue').textContent = profanityThreshold;
+                    
+                    document.getElementById('nudityConfirmationMinImmodesty').value = nudityConfirmMin;
+                    document.getElementById('nudityConfirmationMinImmodestyValue').textContent = nudityConfirmMin;
                     
                     // Set scene detection values
                     var sceneMethod = config.SceneDetectionMethod || 'transnetv2';
@@ -395,6 +409,7 @@
                     config.ImmodestyThreshold = parseFloat(document.getElementById('immodestyThreshold').value);
                     config.ViolenceThreshold = parseFloat(document.getElementById('violenceThreshold').value);
                     config.ProfanityThreshold = parseFloat(document.getElementById('profanityThreshold').value);
+                    config.NudityConfirmationMinImmodesty = parseFloat(document.getElementById('nudityConfirmationMinImmodesty').value);
                     
                     // Save scene detection settings
                     config.SceneDetectionMethod = document.getElementById('sceneDetectionMethod').value;

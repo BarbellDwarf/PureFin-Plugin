@@ -92,6 +92,14 @@ public class PluginConfiguration : BasePluginConfiguration
     public string AiServiceMediaPath { get; set; } = "/mnt/media";
 
     /// <summary>
+    /// Gets or sets a minimum immodesty score required to confirm a nudity detection.
+    /// When greater than 0.0, nudity-only detections (high nudity but near-zero immodesty)
+    /// are rejected as false positives. Recommended: 0.05.
+    /// Set to 0.0 to disable confirmation and flag on nudity score alone.
+    /// </summary>
+    public double NudityConfirmationMinImmodesty { get; set; } = 0.05;
+
+    /// <summary>
     /// Gets or sets the scene detection method (ffmpeg, sampling, transnetv2).
     /// </summary>
     public string SceneDetectionMethod { get; set; } = "transnetv2";
@@ -134,7 +142,8 @@ public class PluginConfiguration : BasePluginConfiguration
             FfmpegSceneThreshold = FfmpegSceneThreshold,
             SamplingIntervalSeconds = SamplingIntervalSeconds,
             JellyfinMediaPath = JellyfinMediaPath,
-            AiServiceMediaPath = AiServiceMediaPath
+            AiServiceMediaPath = AiServiceMediaPath,
+            NudityConfirmationMinImmodesty = NudityConfirmationMinImmodesty
         };
     }
 }
