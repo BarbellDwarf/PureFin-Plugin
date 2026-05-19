@@ -39,10 +39,19 @@ docker compose up -d
 
 curl http://localhost:3001/ready
 curl http://localhost:3002/ready
-curl http://localhost:3004/ready
+curl http://localhost:3003/ready
 ```
 
-Set `AiServiceBaseUrl` to `http://localhost:3002` if needed.
+Set `AiServiceBaseUrl` to `http://localhost:3002` if needed.  
+For multi-host AI, add extra scene-analyzer URLs in `AiServiceBaseUrls` and choose `AiServiceLoadBalancingMode`.
+
+Violence profile selection (container-side):
+
+- `speed` → `nghiabntl/vit-base-violence-detection`
+- `balanced` → `jaranohaal/vit-base-violence-detection` (default)
+- `quality` → `framasoft/vit-base-violence-detection` (+TTA)
+
+Set `VIOLENCE_MODEL_PROFILE` in `ai-services/.env` and restart containers to switch instantly.
 
 ---
 
@@ -92,7 +101,7 @@ Jellyfin Server
 AI Services (Docker)
 ├── scene-analyzer      (port 3002)
 ├── nsfw-detector       (port 3001)
-└── content-classifier  (port 3004)
+└── violence-detector   (port 3003)
 ```
 
 Segments are persisted as JSON with raw AI scores. Active categories are derived dynamically from current threshold settings.

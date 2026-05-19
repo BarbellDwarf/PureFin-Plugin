@@ -133,8 +133,15 @@ public class AnalyzeLibraryTask : IScheduledTask
 
         // Call AI service to analyze video
         var segments = await AnalyzeVideo(path, cancellationToken);
+        if (segments == null || segments.Count == 0)
+        {
+            _logger.LogWarning(
+                "Analysis returned no segments for {Name}; preserving any existing segment data and skipping overwrite",
+                item.Name);
+            return;
+        }
 
-        // Store segments (this will overwrite existing segments)
+        // Store segments.
         var segmentData = new SegmentData
         {
             MediaId = item.Id.ToString(),
@@ -147,96 +154,157 @@ public class AnalyzeLibraryTask : IScheduledTask
         _logger.LogInformation("Stored {Count} segments for {Name}", segments.Count, item.Name);
     }
 
-    private async Task<List<Segment>> AnalyzeVideo(string videoPath, CancellationToken cancellationToken)
+    private async Task<List<Segment>?> AnalyzeVideo(string videoPath, CancellationToken cancellationToken)
     {
         var config = Plugin.Instance?.Configuration;
         if (config == null)
         {
             _logger.LogWarning("Plugin configuration not available");
-            return new List<Segment>();
+            return null;
         }
 
         try
         {
-            // Call scene analyzer AI service
-            var sceneAnalyzerUrl = $"{config.AiServiceBaseUrl.TrimEnd('/')}/analyze";
-            
+            var endpoints = AiServiceEndpointHelper.GetAnalysisOrder(config);
+            if (endpoints.Count == 0)
+            {
+                _logger.LogError("No valid AI service endpoints configured. Check AiServiceBaseUrl/AiServiceBaseUrls.");
+                return null;
+            }
+
+            var sampleCount = Math.Clamp(config.SceneSampleCount, 3, 15);
+
             // Convert Jellyfin path to container path
             var containerPath = ConvertToContainerPath(videoPath, config);
-            
-            _logger.LogInformation("Calling scene analyzer at {Url} for {Path} (container path: {ContainerPath})", 
-                sceneAnalyzerUrl, videoPath, containerPath);
 
             var httpClient = _httpClientFactory.CreateClient();
-            httpClient.Timeout = TimeSpan.FromMinutes(30); // Long timeout for video processing
+            // Higher per-scene sampling can substantially increase runtime on long movies.
+            // Scale timeout with sample count to avoid premature cancellation.
+            var timeoutMinutes = Math.Clamp(30 + (sampleCount * 10), 45, 240);
+            httpClient.Timeout = TimeSpan.FromMinutes(timeoutMinutes);
+            _logger.LogInformation(
+                "Using analysis timeout of {TimeoutMinutes} minutes (sample_count={SampleCount})",
+                timeoutMinutes,
+                sampleCount);
 
             var requestData = new
             {
                 video_path = containerPath,
                 threshold = 0.15,  // Lower threshold to detect more scenes
-                sample_count = 5,
+                sample_count = sampleCount,
                 scene_detection_method = config.SceneDetectionMethod ?? "transnetv2",
                 ffmpeg_scene_threshold = config.FfmpegSceneThreshold,
                 sampling_interval = config.SamplingIntervalSeconds
             };
 
             var jsonString = System.Text.Json.JsonSerializer.Serialize(requestData);
-            var requestContent = new StringContent(jsonString, System.Text.Encoding.UTF8, "application/json");
-            var response = await httpClient.PostAsync(sceneAnalyzerUrl, requestContent, cancellationToken);
-
-            if (!response.IsSuccessStatusCode)
+            Exception? lastFailure = null;
+            foreach (var endpoint in endpoints)
             {
-                var error = await response.Content.ReadAsStringAsync(cancellationToken);
-                _logger.LogError("Scene analyzer returned error: {Status} - {Error}", response.StatusCode, error);
-                return new List<Segment>();
-            }
+                var sceneAnalyzerUrl = $"{endpoint}/analyze";
+                _logger.LogInformation(
+                    "Calling scene analyzer at {Url} for {Path} (container path: {ContainerPath})",
+                    sceneAnalyzerUrl,
+                    videoPath,
+                    containerPath);
 
-            var responseData = await response.Content.ReadFromJsonAsync<SceneAnalyzerResponse>(cancellationToken: cancellationToken);
-            if (responseData == null || !responseData.Success)
-            {
-                _logger.LogError("Invalid response from scene analyzer");
-                return new List<Segment>();
-            }
-
-            _logger.LogInformation("Scene analyzer found {Count} scenes for {Path}", responseData.SceneCount, videoPath);
-
-            // Convert AI service response to plugin segments with raw scores
-            var segments = new List<Segment>();
-            foreach (var scene in responseData.Scenes)
-            {
-                // Store ALL raw AI scores for every scene so thresholds can be changed without re-analysis.
-                var rawScores = new Dictionary<string, double>
+                try
                 {
-                    ["nudity"] = scene.Analysis.Nudity,
-                    ["immodesty"] = scene.Analysis.Immodesty,
-                    ["violence"] = scene.Analysis.Violence
-                };
+                    using var requestContent = new StringContent(jsonString, System.Text.Encoding.UTF8, "application/json");
+                    var response = await httpClient.PostAsync(sceneAnalyzerUrl, requestContent, cancellationToken);
 
-                segments.Add(new Segment
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        var error = await response.Content.ReadAsStringAsync(cancellationToken);
+                        _logger.LogWarning(
+                            "Scene analyzer endpoint {Endpoint} returned error: {Status} - {Error}",
+                            endpoint,
+                            response.StatusCode,
+                            error);
+                        continue;
+                    }
+
+                    var responseData = await response.Content.ReadFromJsonAsync<SceneAnalyzerResponse>(cancellationToken: cancellationToken);
+                    if (responseData == null || !responseData.Success)
+                    {
+                        _logger.LogWarning("Scene analyzer endpoint {Endpoint} returned an invalid payload", endpoint);
+                        continue;
+                    }
+
+                    _logger.LogInformation("Scene analyzer endpoint {Endpoint} found {Count} scenes for {Path}", endpoint, responseData.SceneCount, videoPath);
+                    if (responseData.ModelVersions is not null && responseData.ModelVersions.Count > 0)
+                    {
+                        _logger.LogInformation(
+                            "Scene analyzer runtime for {Endpoint}: {ModelVersions}",
+                            endpoint,
+                            string.Join(", ", responseData.ModelVersions.Select(kvp => $"{kvp.Key}={kvp.Value}")));
+                    }
+
+                    // Convert AI service response to plugin segments with raw scores
+                    var segments = new List<Segment>();
+                    foreach (var scene in responseData.Scenes)
+                    {
+                        // Store ALL raw AI scores for every scene so thresholds can be changed without re-analysis.
+                        var rawScores = new Dictionary<string, double>
+                        {
+                            ["nudity"] = scene.Analysis.Nudity,
+                            ["immodesty"] = scene.Analysis.Immodesty,
+                            ["violence"] = scene.Analysis.Violence
+                        };
+
+                        segments.Add(new Segment
+                        {
+                            Start = scene.Start,
+                            End = scene.End,
+                            RawScores = rawScores, // Store raw AI scores
+                            Categories = Array.Empty<string>(), // Will be computed dynamically based on current config
+                            Action = "skip", // Default action for detected content
+                            Source = "ai"
+                        });
+                    }
+
+                    _logger.LogInformation(
+                        "Generated {Count} segments with raw AI scores - filtering will be applied dynamically based on current UI thresholds",
+                        segments.Count);
+                    return segments;
+                }
+                catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
                 {
-                    Start = scene.Start,
-                    End = scene.End,
-                    RawScores = rawScores, // Store raw AI scores
-                    Categories = Array.Empty<string>(), // Will be computed dynamically based on current config
-                    Action = "skip", // Default action for detected content
-                    Source = "ai"
-                });
+                    lastFailure = ex;
+                    _logger.LogWarning(ex, "AI analysis request timed out for {Path} on endpoint {Endpoint}", videoPath, endpoint);
+                }
+                catch (System.Net.Http.HttpRequestException ex)
+                {
+                    lastFailure = ex;
+                    _logger.LogWarning(ex, "Error connecting to AI service endpoint {Endpoint}", endpoint);
+                }
             }
 
-            _logger.LogInformation(
-                "Generated {Count} segments with raw AI scores - filtering will be applied dynamically based on current UI thresholds",
-                segments.Count);
-            return segments;
+            if (lastFailure is not null)
+            {
+                _logger.LogError(lastFailure, "All configured AI service endpoints failed for {Path}", videoPath);
+            }
+            else
+            {
+                _logger.LogError("All configured AI service endpoints returned invalid responses for {Path}", videoPath);
+            }
+
+            return null;
+        }
+        catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogError(ex, "AI analysis request timed out for {Path}", videoPath);
+            return null;
         }
         catch (System.Net.Http.HttpRequestException ex)
         {
-            _logger.LogError(ex, "Error connecting to AI service at {Url}. Make sure the service is running.", config.AiServiceBaseUrl);
-            return new List<Segment>();
+            _logger.LogError(ex, "Error connecting to AI service. Make sure at least one configured endpoint is running.");
+            return null;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error analyzing video: {Path}", videoPath);
-            return new List<Segment>();
+            return null;
         }
     }
 
@@ -305,6 +373,9 @@ public class AnalyzeLibraryTask : IScheduledTask
 
         [JsonPropertyName("scenes")]
         public List<SceneResult> Scenes { get; set; } = new();
+
+        [JsonPropertyName("model_versions")]
+        public Dictionary<string, string>? ModelVersions { get; set; }
     }
 
     /// <summary>

@@ -15,7 +15,7 @@ docker-compose up -d
 ### Option 2: GPU Acceleration - **For Power Users with NVIDIA GPUs**
 ```bash
 cd ai-services
-docker-compose -f docker-compose.gpu.yml up -d
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build -d
 ```
 - 🚀 5-10x faster inference (3-6 seconds per video analysis)
 - ✅ Better for large media libraries
@@ -25,7 +25,7 @@ docker-compose -f docker-compose.gpu.yml up -d
 ### Option 3: Explicit CPU-Only - **For Servers Without GPU**
 ```bash
 cd ai-services
-docker-compose -f docker-compose.cpu.yml up -d
+docker compose -f docker-compose.yml -f docker-compose.cpu.yml up --build -d
 ```
 - ✅ Same as Option 1 but with resource limits
 - ✅ Better for shared/server environments
@@ -64,21 +64,21 @@ If both commands work, you can use GPU acceleration!
 ```bash
 cd ai-services
 docker-compose down
-docker-compose -f docker-compose.gpu.yml up -d
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build -d
 ```
 
 ### Currently Running GPU? Switch to CPU:
 ```bash
 cd ai-services
-docker-compose -f docker-compose.gpu.yml down
-docker-compose up -d
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml down
+docker compose -f docker-compose.yml -f docker-compose.cpu.yml up --build -d
 ```
 
 ### Check What's Currently Running:
 ```bash
 docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}"
 ```
-- Look for container names ending in `-gpu` (GPU mode) or without suffix (CPU mode)
+- Look for `scene-analyzer`, `nsfw-detector`, and `violence-detector` containers.
 
 ## 🔍 Monitoring Performance
 
@@ -95,15 +95,15 @@ curl http://localhost:3001/health
 # Scene Analyzer  
 curl http://localhost:3002/health
 
-# Content Classifier
-curl http://localhost:3004/health
+# Violence Detector
+curl http://localhost:3003/health
 ```
 
 ### Check Analysis Logs:
 ```bash
 # See recent analysis activity
-docker logs scene-analyzer-gpu    # For GPU mode
-docker logs scene-analyzer        # For CPU mode
+docker logs scene-analyzer
+docker logs violence-detector
 ```
 
 ## 🎯 Recommendations
@@ -138,9 +138,9 @@ ANALYSIS_SAMPLE_COUNT=3  # Default: 5
 ## 🚨 Troubleshooting
 
 ### GPU Mode Not Working?
-1. Check `docker logs nsfw-detector-gpu` for CUDA errors
+1. Check `docker logs nsfw-detector` and `docker logs violence-detector` for CUDA errors
 2. Verify GPU access: `docker run --rm --gpus all nvidia/cuda:11.8-base-ubuntu22.04 nvidia-smi`
-3. Fallback to CPU mode: `docker-compose -f docker-compose.gpu.yml down && docker-compose up -d`
+3. Fallback to CPU mode: `docker compose -f docker-compose.yml -f docker-compose.gpu.yml down && docker compose -f docker-compose.yml -f docker-compose.cpu.yml up --build -d`
 
 ### CPU Mode Too Slow?
 1. Reduce `sample_count` in analysis requests

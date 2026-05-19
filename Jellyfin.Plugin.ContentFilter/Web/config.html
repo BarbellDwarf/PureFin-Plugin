@@ -114,7 +114,21 @@
                         <div class="inputContainer">
                             <label class="inputLabel" for="aiServiceBaseUrl">AI Service Base URL:</label>
                             <input is="emby-input" type="text" id="aiServiceBaseUrl" name="aiServiceBaseUrl" />
-                            <div class="fieldDescription">Base URL for AI content analysis services (e.g. http://localhost:3002 or http://host.docker.internal:3002)</div>
+                            <div class="fieldDescription">Primary scene-analyzer URL (e.g. http://localhost:3002).</div>
+                        </div>
+
+                        <div class="inputContainer">
+                            <label class="inputLabel" for="aiServiceBaseUrls">Additional AI Service Base URLs:</label>
+                            <input is="emby-input" type="text" id="aiServiceBaseUrls" name="aiServiceBaseUrls" />
+                            <div class="fieldDescription">Optional extra hosts for load spreading/failover. Separate URLs with commas or semicolons.</div>
+                        </div>
+
+                        <div class="selectContainer">
+                            <label class="selectLabel" for="aiServiceLoadBalancingMode">AI Host Selection:</label>
+                            <select is="emby-select" id="aiServiceLoadBalancingMode" name="aiServiceLoadBalancingMode">
+                                <option value="round_robin">Round-robin (spread analysis across hosts)</option>
+                                <option value="failover">Failover (try next host only if previous fails)</option>
+                            </select>
                         </div>
 
                         <h3 style="margin-top: 20px;">Path Mapping (Docker)</h3>
@@ -192,6 +206,8 @@
                             <div><strong>Pending:</strong> <span id="queuePendingJobs">-</span> | <strong>Active:</strong> <span id="queueActiveJobs">-</span></div>
                             <div><strong>Processed:</strong> <span id="queueProcessedJobs">-</span> | <strong>Failed:</strong> <span id="queueFailedJobs">-</span></div>
                             <div><strong>Model auto-unload:</strong> <span id="queueModelUnloadSeconds">-</span> seconds idle</div>
+                            <div style="margin-top: 8px;"><strong>Configured Hosts:</strong> <span id="queueConfiguredHosts">-</span> | <strong>Reachable:</strong> <span id="queueReachableHosts">-</span></div>
+                            <div id="queueHostsRuntime" style="margin-top: 8px; font-size: 0.95em; opacity: 0.9;">-</div>
                         </div>
                         <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px;">
                             <button is="emby-button" type="button" class="raised" id="refreshQueueStatusButton">Refresh Queue Status</button>
@@ -257,7 +273,11 @@
 
             function renderQueueStatus(data) {
                 var paused = !!data.paused;
+                var partiallyPaused = !!data.partially_paused;
                 var statusText = paused ? 'Paused' : 'Running';
+                if (partiallyPaused) {
+                    statusText = 'Partially Paused';
+                }
                 if (paused && data.pause_reason) {
                     statusText += ' (' + data.pause_reason + ')';
                 }
@@ -268,9 +288,31 @@
                 document.getElementById('queueProcessedJobs').textContent = data.processed_jobs != null ? data.processed_jobs : '-';
                 document.getElementById('queueFailedJobs').textContent = data.failed_jobs != null ? data.failed_jobs : '-';
                 document.getElementById('queueModelUnloadSeconds').textContent = data.model_idle_unload_seconds != null ? data.model_idle_unload_seconds : '-';
+                document.getElementById('queueConfiguredHosts').textContent = data.configured_hosts != null ? data.configured_hosts : '-';
+                document.getElementById('queueReachableHosts').textContent = data.successful_hosts != null ? data.successful_hosts : '-';
 
-                document.getElementById('pauseQueueButton').disabled = paused;
-                document.getElementById('resumeQueueButton').disabled = !paused;
+                var hosts = Array.isArray(data.hosts) ? data.hosts : [];
+                if (hosts.length > 0) {
+                    var hostRows = hosts.map(function (host) {
+                        var runtime = host.runtime || {};
+                        var queue = host.queue || {};
+                        var runtimeModel = runtime.modelProfile || runtime.model_profile || '-';
+                        var runtimeModelId = runtime.modelId || runtime.model_id || '-';
+                        var runtimeDevice = runtime.device || '-';
+                        var queueState = queue.success ? 'reachable' : 'unreachable';
+                        return '[' + (host.baseUrl || host.base_url || '-') + '] ' +
+                            queueState +
+                            ' | profile=' + runtimeModel +
+                            ' | model=' + runtimeModelId +
+                            ' | device=' + runtimeDevice;
+                    });
+                    document.getElementById('queueHostsRuntime').textContent = hostRows.join(' || ');
+                } else {
+                    document.getElementById('queueHostsRuntime').textContent = '-';
+                }
+
+                document.getElementById('pauseQueueButton').disabled = paused && !partiallyPaused;
+                document.getElementById('resumeQueueButton').disabled = !(paused || partiallyPaused);
             }
 
             function refreshQueueStatus() {
@@ -292,6 +334,9 @@
                     document.getElementById('queueProcessedJobs').textContent = '-';
                     document.getElementById('queueFailedJobs').textContent = '-';
                     document.getElementById('queueModelUnloadSeconds').textContent = '-';
+                    document.getElementById('queueConfiguredHosts').textContent = '-';
+                    document.getElementById('queueReachableHosts').textContent = '-';
+                    document.getElementById('queueHostsRuntime').textContent = '-';
                     console.error('Queue status error', error);
                 });
             }
@@ -341,6 +386,8 @@
                     document.getElementById('sensitivity').value = config.Sensitivity;
                     document.getElementById('segmentDirectory').value = config.SegmentDirectory;
                     document.getElementById('aiServiceBaseUrl').value = config.AiServiceBaseUrl;
+                    document.getElementById('aiServiceBaseUrls').value = config.AiServiceBaseUrls || '';
+                    document.getElementById('aiServiceLoadBalancingMode').value = config.AiServiceLoadBalancingMode || 'round_robin';
                     document.getElementById('jellyfinMediaPath').value = config.JellyfinMediaPath || '';
                     document.getElementById('aiServiceMediaPath').value = config.AiServiceMediaPath || '/mnt/media';
                     document.getElementById('preferCommunityData').checked = config.PreferCommunityData;
@@ -412,6 +459,8 @@
                     config.Sensitivity = document.getElementById('sensitivity').value;
                     config.SegmentDirectory = document.getElementById('segmentDirectory').value;
                     config.AiServiceBaseUrl = document.getElementById('aiServiceBaseUrl').value;
+                    config.AiServiceBaseUrls = document.getElementById('aiServiceBaseUrls').value;
+                    config.AiServiceLoadBalancingMode = document.getElementById('aiServiceLoadBalancingMode').value;
                     config.JellyfinMediaPath = document.getElementById('jellyfinMediaPath').value;
                     config.AiServiceMediaPath = document.getElementById('aiServiceMediaPath').value;
                     config.PreferCommunityData = document.getElementById('preferCommunityData').checked;

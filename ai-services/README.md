@@ -4,15 +4,17 @@ This directory contains the AI services that power content analysis for the Pure
 
 ## ⚠️ Real Model Files Required
 
-AI services will **not** perform inference without trained model weight files in the `models/` directory.
-Services start in a degraded state when models are missing — all `/analyze` and `/classify` endpoints
-return **HTTP 503** until real models are present.
+AI services need trained model files in `models/`. The violence detector can auto-download
+its model from HuggingFace on first use, but NSFW still requires a local model.
+When required model files are missing, related endpoints return **HTTP 503**.
 
 ```
 ai-services/
 └── models/
-    ├── nsfw/nsfw_model.h5          ← required for NSFW detection
-    ├── violence/violence_model.h5  ← required for violence classification
+    ├── nsfw/mobilenet_v2_140_224/                  ← required for NSFW detection
+    ├── violence/speed/                             ← optional violence profile cache
+    ├── violence/balanced/                          ← default violence profile cache
+    ├── violence/quality/                           ← optional violence profile cache
     └── clip/clip-vit-base-patch32/ ← required for CLIP-based classification
 ```
 
@@ -24,8 +26,8 @@ See `models/model-manifest.json` for the canonical list of required models.
 2. **Copy environment template**: `cp .env.example .env`
 3. **Edit `.env`** with your media library path
 4. **Start services**: 
-   - **With GPU**: `docker-compose -f docker-compose.gpu.yml up -d` (see [GPU_SETUP.md](GPU_SETUP.md))
-   - **CPU only**: `docker-compose up -d`
+   - **With NVIDIA GPU**: `docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build -d` (see [GPU_SETUP.md](GPU_SETUP.md))
+   - **CPU only**: `docker compose -f docker-compose.yml -f docker-compose.cpu.yml up --build -d`
 
 ## What You Need to Configure
 
@@ -70,8 +72,8 @@ volumes:
 └─────────────────┘      └──────────────────┘
          │
          └──────────────►┌──────────────────┐
-                         │Content Classifier│
-                         │  (TensorFlow)    │
+                         │Violence Detector │
+                         │ (HF ViT / Torch) │
                          └──────────────────┘
 ```
 
@@ -89,16 +91,22 @@ volumes:
 - **Function**: Analyzes video frames for NSFW content
 - **Models**: Pre-trained classification models
 
-### Content Classifier (Port 3004)
-- **Purpose**: Classifies violence, profanity, and other categories
-- **Technology**: TensorFlow
-- **Function**: Multi-label content classification
-- **Models**: Custom trained models
+### Violence Detector (Port 3003)
+- **Purpose**: Classifies violent vs non-violent frames
+- **Technology**: HuggingFace Transformers + PyTorch
+- **Function**: Provides calibrated violence probability (`violence_score`)
+- **Model profiles**:
+  - `speed` → `nghiabntl/vit-base-violence-detection` (fastest)
+  - `balanced` → `jaranohaal/vit-base-violence-detection` (default)
+  - `quality` → `framasoft/vit-base-violence-detection` (+TTA for higher stability)
 
 ## Configuration Files
 
 - **`docker-compose.yml`** - Active configuration (customize this)
 - **`docker-compose.template.yml`** - Template with environment variables
+- **`docker-compose.gpu.yml`** - NVIDIA GPU overlay (optional)
+- **`docker-compose.cpu.yml`** - Explicit CPU-only overlay (optional)
+- **`docker-compose.amd.yml`** - AMD ROCm overlay (optional)
 - **`.env.example`** - Environment variable examples
 - **`SETUP.md`** - Detailed setup instructions
 
@@ -169,7 +177,7 @@ For significantly faster content analysis with NVIDIA GPUs, see **[GPU_SETUP.md]
 # See GPU_SETUP.md for detailed instructions
 
 # Start with GPU support
-docker-compose -f docker-compose.gpu.yml up -d
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build -d
 ```
 
 **Performance improvement:** 5-10x faster analysis with GPU vs CPU!
@@ -181,12 +189,24 @@ Place custom AI models in the `models/` directory:
 ```
 ai-services/
 ├── models/
-│   ├── nsfw_model.h5
-│   ├── violence_model.h5
-│   └── profanity_model.pkl
+│   ├── nsfw/mobilenet_v2_140_224/
+│   ├── violence/balanced/
+│   └── content/clip-vit-base-patch32/
 ```
 
 They'll be available at `/app/models/` inside containers.
+
+### Violence model profile switching
+
+Set these in `.env` (or compose environment) and restart containers:
+
+```bash
+VIOLENCE_MODEL_PROFILE=balanced   # speed | balanced | quality
+VIOLENCE_MODEL_ID=                # optional custom override
+VIOLENCE_MODEL_SUBDIR=            # optional custom cache subdir
+```
+
+The scene-analyzer `/health` and `/runtime` endpoints expose the active downstream violence model/profile/device for plugin-side introspection.
 
 ### Resource Management (Idle Model Unload)
 
@@ -198,7 +218,7 @@ By default, models are unloaded after inactivity and reloaded on-demand:
 Scene-analyzer queue behavior:
 
 - `ANALYSIS_QUEUE_MAX_SIZE` (default: `8`)
-- `ANALYSIS_QUEUE_WAIT_TIMEOUT_SECONDS` (default: `3600`)
+- `ANALYSIS_QUEUE_WAIT_TIMEOUT_SECONDS` (default: `10800`)
 
 ## API Testing
 
@@ -208,11 +228,11 @@ Test each service independently:
 # Health checks
 curl http://localhost:3002/health  # Scene Analyzer
 curl http://localhost:3001/health  # NSFW Detector
-curl http://localhost:3004/health  # Content Classifier
+curl http://localhost:3003/health  # Violence Detector
 
 # Readiness checks — returns 200 when models are loaded, 503 when not
 curl http://localhost:3001/ready   # NSFW Detector
-curl http://localhost:3004/ready   # Content Classifier
+curl http://localhost:3003/ready   # Violence Detector
 curl http://localhost:3002/ready   # Scene Analyzer (checks all downstream services)
 
 # Queue controls
@@ -241,7 +261,7 @@ View specific service logs:
 ```bash
 docker-compose logs -f scene-analyzer
 docker-compose logs -f nsfw-detector
-docker-compose logs -f content-classifier
+docker-compose logs -f violence-detector
 ```
 
 ## Updating

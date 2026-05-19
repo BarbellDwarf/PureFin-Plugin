@@ -51,6 +51,18 @@ cd ai-services
 docker compose up -d
 ```
 
+### Choose a Violence Model Profile (speed / balanced / quality)
+
+Set `VIOLENCE_MODEL_PROFILE` in `ai-services/.env` before starting containers:
+
+| Profile | Model ID | Tradeoff |
+|---------|----------|----------|
+| `speed` | `nghiabntl/vit-base-violence-detection` | Fastest startup/inference |
+| `balanced` | `jaranohaal/vit-base-violence-detection` | Default balance of speed/quality |
+| `quality` | `framasoft/vit-base-violence-detection` | Slower but uses additional TTA pass for more stable scores |
+
+Switching profiles is a drop-in change: update `VIOLENCE_MODEL_PROFILE`, then restart the AI containers.
+
 By default, AI services auto-unload models after idle time and lazy-load them on the next request. You can override this with environment variables in `ai-services/docker-compose.yml`:
 
 - `MODEL_IDLE_UNLOAD_SECONDS` (default `900`)
@@ -64,7 +76,7 @@ Check each service is ready before running library analysis:
 
 ```bash
 curl http://localhost:3001/ready   # nsfw-detector
-curl http://localhost:3004/ready   # content-classifier
+curl http://localhost:3003/ready   # violence-detector
 curl http://localhost:3002/ready   # scene-analyzer (orchestrator)
 ```
 
@@ -81,7 +93,7 @@ Expected response when ready:
 |---------|-----------|---------|
 | scene-analyzer | 3002 | Orchestrator — called directly by the plugin |
 | nsfw-detector | 3001 | NSFW/nudity detection |
-| content-classifier | 3004 | Violence/content classification |
+| violence-detector | 3003 | Violence classification |
 
 ---
 
@@ -91,9 +103,10 @@ After installation, configure the plugin:
 
 1. Go to **Dashboard → Plugins → PureFin → Settings**.
 2. Set `AiServiceBaseUrl` to `http://localhost:3002` (this is the default).
-3. Adjust sensitivity and category toggles as needed.
-4. Go to **Dashboard → Scheduled Tasks** and run **Analyze Library for PureFin** for initial analysis.
-5. Optional: use **Analysis Queue Controls (Admin)** in the plugin page to pause/resume queue processing.
+3. Optional: set `AiServiceBaseUrls` with additional scene-analyzer hosts and choose `AiServiceLoadBalancingMode` (`round_robin` or `failover`).
+4. Adjust sensitivity and category toggles as needed.
+5. Go to **Dashboard → Scheduled Tasks** and run **Analyze Library for PureFin** for initial analysis.
+6. Optional: use **Analysis Queue Controls (Admin)** in the plugin page to pause/resume queue processing across all configured hosts.
 
 ---
 

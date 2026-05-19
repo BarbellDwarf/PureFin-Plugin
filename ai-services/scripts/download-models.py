@@ -44,14 +44,14 @@ MODELS_CONFIG = {
         'auto_download': True
     },
     'violence': {
-        'name': 'Violence Detection Model (Custom)',
-        'url': None,  # We'll create our own model
-        'filename': 'violence_model.h5',
+        'name': 'Violence Detection Model (HuggingFace ViT)',
+        'url': None,
+        'filename': None,
         'extract_to': 'violence',
-        'expected_files': ['violence_model.h5'],
+        'expected_files': ['balanced/config.json'],
         'sha256': None,
-        'description': 'CNN-based violence detection model using transfer learning',
-        'size_mb': 85,
+        'description': 'ViT classifier for violent/non-violent frame detection',
+        'size_mb': 350,
         'auto_download': True
     },
     'clip': {
@@ -65,6 +65,12 @@ MODELS_CONFIG = {
         'size_mb': 600,  # Approximate download size
         'auto_download': True
     }
+}
+
+VIOLENCE_MODEL_PROFILES = {
+    'speed': 'nghiabntl/vit-base-violence-detection',
+    'balanced': 'jaranohaal/vit-base-violence-detection',
+    'quality': 'framasoft/vit-base-violence-detection',
 }
 
 
@@ -208,13 +214,25 @@ print("CLIP model downloaded and cached successfully!")
         return False
 
 
-def create_violence_model():
-    """Placeholder — real model must be provided; generating random weights is not supported."""
-    logger.error(
-        "Violence model not found and no real model is available for download. "
-        "Please provide a trained violence_model.h5 in the models/violence/ directory."
-    )
-    return False
+def create_violence_model(profile: str = 'balanced'):
+    """Download and cache the HuggingFace violence model locally."""
+    try:
+        from transformers import AutoImageProcessor, AutoModelForImageClassification
+
+        model_id = VIOLENCE_MODEL_PROFILES[profile]
+        target_dir = MODELS_DIR / 'violence' / profile
+        target_dir.mkdir(parents=True, exist_ok=True)
+
+        logger.info("Downloading violence model from HuggingFace: %s", model_id)
+        processor = AutoImageProcessor.from_pretrained(model_id)
+        model = AutoModelForImageClassification.from_pretrained(model_id)
+        processor.save_pretrained(target_dir)
+        model.save_pretrained(target_dir)
+        logger.info("Violence model cached at %s", target_dir)
+        return True
+    except Exception as e:
+        logger.error("Failed to download violence model: %s", e)
+        return False
 
 
 def create_nsfw_model():
@@ -226,7 +244,7 @@ def create_nsfw_model():
     return False
 
 
-def verify_model_files(model_key: str, config: dict) -> bool:
+def verify_model_files(model_key: str, config: dict, violence_profile: str = 'balanced') -> bool:
     """Verify that all expected model files exist.
     
     Args:
@@ -238,7 +256,11 @@ def verify_model_files(model_key: str, config: dict) -> bool:
     """
     model_dir = MODELS_DIR / config['extract_to']
     
-    for expected_file in config['expected_files']:
+    expected_files = config['expected_files']
+    if model_key == 'violence':
+        expected_files = [f'{violence_profile}/config.json']
+
+    for expected_file in expected_files:
         file_path = model_dir / expected_file
         if not file_path.exists():
             logger.error(f"Missing expected file for {model_key}: {file_path}")
@@ -248,7 +270,7 @@ def verify_model_files(model_key: str, config: dict) -> bool:
     return True
 
 
-def download_model(model_key: str, config: dict, force: bool = False) -> bool:
+def download_model(model_key: str, config: dict, force: bool = False, violence_profile: str = 'balanced') -> bool:
     """Download and setup a single model.
     
     Args:
@@ -265,7 +287,7 @@ def download_model(model_key: str, config: dict, force: bool = False) -> bool:
     model_dir.mkdir(parents=True, exist_ok=True)
     
     # Check if model already exists
-    if not force and verify_model_files(model_key, config):
+    if not force and verify_model_files(model_key, config, violence_profile):
         logger.info(f"{config['name']} already exists and verified")
         return True
     
@@ -274,7 +296,7 @@ def download_model(model_key: str, config: dict, force: bool = False) -> bool:
         if model_key == 'clip':
             return setup_clip_model()
         elif model_key == 'violence':
-            return create_violence_model()
+            return create_violence_model(violence_profile)
         elif model_key == 'nsfw':
             return create_nsfw_model()
     
@@ -305,7 +327,7 @@ def download_model(model_key: str, config: dict, force: bool = False) -> bool:
             logger.warning(f"Could not remove archive: {e}")
     
     # Final verification
-    return verify_model_files(model_key, config)
+    return verify_model_files(model_key, config, violence_profile)
 
 
 def create_model_info_files():
@@ -349,19 +371,20 @@ model = tf.keras.models.load_model('mobilenet_v2_140_224')
     violence_readme.parent.mkdir(parents=True, exist_ok=True)
     violence_readme.write_text("""# Violence Detection Model
 
-## Model: Violence Detection CNN
+## Model: jaranohaal/vit-base-violence-detection
 
-**Source**: Trained on RWF-2000 Real-World Violence Dataset
-**Architecture**: Convolutional Neural Network
+**Source**: https://huggingface.co/jaranohaal/vit-base-violence-detection
+**Architecture**: Vision Transformer (ViT)
 
 ### Categories:
-- Binary classification: Violence (1) vs Non-Violence (0)
-- Output range: 0.0-1.0 (probability of violence)
+- Binary classification: violent vs non-violent
+- Output range: 0.0-1.0 (probability)
 
 ### Usage:
 ```python
-import tensorflow as tf
-model = tf.keras.models.load_model('violence_model.h5')
+from transformers import AutoImageProcessor, AutoModelForImageClassification
+processor = AutoImageProcessor.from_pretrained('./vit-base-violence-detection')
+model = AutoModelForImageClassification.from_pretrained('./vit-base-violence-detection')
 ```
 
 ### Input Format:
@@ -370,8 +393,8 @@ model = tf.keras.models.load_model('violence_model.h5')
 - Normalization: 0-1
 
 ### Output Format:
-- Single score (0.0-1.0)
-- >0.5 typically indicates violence detected
+- Label scores per class
+- `violence_score` normalized to 0.0-1.0
 """)
 
     # Content Classification README
@@ -422,6 +445,8 @@ def main():
                        help='Download GPU-optimized models where available')
     parser.add_argument('--verify-only', action='store_true',
                        help='Only verify existing models, do not download')
+    parser.add_argument('--violence-profile', choices=sorted(VIOLENCE_MODEL_PROFILES.keys()),
+                       default='balanced', help='Violence model profile to process (default: balanced)')
     
     args = parser.parse_args()
     
@@ -454,14 +479,14 @@ def main():
         
         if args.verify_only:
             # Only verify, don't download
-            if verify_model_files(model_key, config):
+            if verify_model_files(model_key, config, args.violence_profile):
                 logger.info(f"✓ {config['name']} - verified")
                 success_count += 1
             else:
                 logger.error(f"✗ {config['name']} - verification failed")
         else:
             # Download and setup
-            if download_model(model_key, config, args.force):
+            if download_model(model_key, config, args.force, args.violence_profile):
                 logger.info(f"✓ {config['name']} - ready")
                 success_count += 1
             else:

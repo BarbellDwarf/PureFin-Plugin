@@ -1,8 +1,10 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Plugin.ContentFilter.Models;
@@ -108,24 +110,26 @@ public class PureFinSegmentsController : ControllerBase
     [ProducesResponseType(401)]
     [ProducesResponseType(403)]
     [ProducesResponseType(503)]
-    public Task<ActionResult> GetQueueStatus()
-        => ForwardQueueRequestAsync("status", HttpMethod.Get);
+    public Task<ActionResult> GetQueueStatus([FromQuery] string? host = null)
+        => ForwardQueueRequestAsync("status", HttpMethod.Get, host: host);
 
     /// <summary>
     /// Pauses analysis queue processing.
     /// </summary>
     /// <param name="request">Optional pause reason.</param>
+    /// <param name="host">Optional specific host base URL to target.</param>
     /// <returns>Queue status after pause.</returns>
     [HttpPost("Queue/Pause")]
     [ProducesResponseType(200)]
     [ProducesResponseType(401)]
     [ProducesResponseType(403)]
     [ProducesResponseType(503)]
-    public Task<ActionResult> PauseQueue([FromBody] QueuePauseRequest? request)
+    public Task<ActionResult> PauseQueue([FromBody] QueuePauseRequest? request, [FromQuery] string? host = null)
         => ForwardQueueRequestAsync(
             "pause",
             HttpMethod.Post,
-            new { reason = string.IsNullOrWhiteSpace(request?.Reason) ? "Paused from Jellyfin UI" : request!.Reason });
+            new { reason = string.IsNullOrWhiteSpace(request?.Reason) ? "Paused from Jellyfin UI" : request!.Reason },
+            host);
 
     /// <summary>
     /// Resumes analysis queue processing.
@@ -136,8 +140,63 @@ public class PureFinSegmentsController : ControllerBase
     [ProducesResponseType(401)]
     [ProducesResponseType(403)]
     [ProducesResponseType(503)]
-    public Task<ActionResult> ResumeQueue()
-        => ForwardQueueRequestAsync("resume", HttpMethod.Post);
+    public Task<ActionResult> ResumeQueue([FromQuery] string? host = null)
+        => ForwardQueueRequestAsync("resume", HttpMethod.Post, host: host);
+
+    /// <summary>
+    /// Gets AI service runtime/model status for all configured hosts.
+    /// </summary>
+    /// <param name="host">Optional specific host base URL to query.</param>
+    /// <returns>Per-host runtime and model metadata.</returns>
+    [HttpGet("AiServices/Status")]
+    [ProducesResponseType(200)]
+    [ProducesResponseType(401)]
+    [ProducesResponseType(403)]
+    [ProducesResponseType(503)]
+    public async Task<ActionResult> GetAiServicesStatus([FromQuery] string? host = null)
+    {
+        var authError = EnsureAdmin(out _);
+        if (authError != null)
+        {
+            return authError;
+        }
+
+        var config = Plugin.Instance?.Configuration;
+        if (config == null)
+        {
+            return StatusCode(503, new { error = "Plugin configuration is not available." });
+        }
+
+        var endpoints = ResolveTargetHosts(config, host);
+        if (endpoints.Count == 0)
+        {
+            return StatusCode(503, new { error = "No valid AI service endpoints configured." });
+        }
+
+        var client = _httpClientFactory.CreateClient();
+        client.Timeout = TimeSpan.FromSeconds(15);
+        var hostStatuses = await Task.WhenAll(endpoints.Select(endpoint => QueryRuntimeStatusAsync(client, endpoint)));
+        var successCount = hostStatuses.Count(result => result.Success);
+        if (successCount == 0)
+        {
+            return StatusCode(503, new
+            {
+                success = false,
+                error = "Could not communicate with any configured AI service host.",
+                hosts = hostStatuses
+            });
+        }
+
+        return Ok(new
+        {
+            success = true,
+            load_balancing_mode = config.AiServiceLoadBalancingMode,
+            configured_hosts = endpoints.Count,
+            successful_hosts = successCount,
+            failed_hosts = endpoints.Count - successCount,
+            hosts = hostStatuses
+        });
+    }
 
     private static Segment EnrichSegment(Segment segment, Configuration.PluginConfiguration config)
     {
@@ -182,7 +241,7 @@ public class PureFinSegmentsController : ControllerBase
         return null;
     }
 
-    private async Task<ActionResult> ForwardQueueRequestAsync(string endpoint, HttpMethod method, object? payload = null)
+    private async Task<ActionResult> ForwardQueueRequestAsync(string endpoint, HttpMethod method, object? payload = null, string? host = null)
     {
         var authError = EnsureAdmin(out _);
         if (authError != null)
@@ -190,35 +249,88 @@ public class PureFinSegmentsController : ControllerBase
             return authError;
         }
 
-        var baseUrl = Plugin.Instance?.Configuration?.AiServiceBaseUrl?.TrimEnd('/');
-        if (string.IsNullOrWhiteSpace(baseUrl))
+        var config = Plugin.Instance?.Configuration;
+        if (config == null)
         {
-            return StatusCode(503, new { error = "AI service base URL is not configured." });
+            return StatusCode(503, new { error = "Plugin configuration is not available." });
         }
 
-        var url = $"{baseUrl}/queue/{endpoint}";
+        var endpoints = ResolveTargetHosts(config, host);
+        if (endpoints.Count == 0)
+        {
+            return StatusCode(503, new { error = "No valid AI service endpoints configured." });
+        }
+
         try
         {
             var client = _httpClientFactory.CreateClient();
             client.Timeout = TimeSpan.FromSeconds(15);
 
-            using var request = new HttpRequestMessage(method, url);
-            if (payload != null)
+            var hostResults = await Task.WhenAll(endpoints.Select(async endpointBase =>
             {
-                request.Content = JsonContent.Create(payload);
+                var runtime = await QueryRuntimeStatusAsync(client, endpointBase);
+                var queue = await QueryQueueEndpointAsync(client, endpointBase, endpoint, method, payload);
+                return new HostQueueResult
+                {
+                    BaseUrl = endpointBase,
+                    Runtime = runtime,
+                    Queue = queue
+                };
+            }));
+
+            var succeeded = hostResults.Where(result => result.Queue.Success).ToList();
+            if (succeeded.Count == 0)
+            {
+                return StatusCode(503, new
+                {
+                    success = false,
+                    error = $"Queue {endpoint} failed on all configured AI hosts.",
+                    hosts = hostResults
+                });
             }
 
-            using var response = await client.SendAsync(request);
-            var body = await response.Content.ReadAsStringAsync();
-            try
+            var queuePayloads = succeeded
+                .Select(result => result.Queue.Payload)
+                .Where(static payloadNode => payloadNode is not null)
+                .Cast<JsonObject>()
+                .ToList();
+
+            var pausedHosts = queuePayloads.Count(payloadNode => ReadBool(payloadNode, "paused"));
+            var pauseReasons = queuePayloads
+                .Select(payloadNode => ReadString(payloadNode, "pause_reason"))
+                .Where(reason => !string.IsNullOrWhiteSpace(reason))
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+
+            var pendingJobs = queuePayloads.Sum(payloadNode => ReadInt(payloadNode, "pending_jobs"));
+            var activeJobs = queuePayloads.Sum(payloadNode => ReadInt(payloadNode, "active_jobs"));
+            var processedJobs = queuePayloads.Sum(payloadNode => ReadInt(payloadNode, "processed_jobs"));
+            var failedJobs = queuePayloads.Sum(payloadNode => ReadInt(payloadNode, "failed_jobs"));
+            var unloadSeconds = queuePayloads
+                .Select(payloadNode => ReadNullableInt(payloadNode, "model_idle_unload_seconds"))
+                .Where(static value => value.HasValue)
+                .Select(static value => value!.Value)
+                .Distinct()
+                .ToArray();
+
+            return Ok(new
             {
-                var json = JsonSerializer.Deserialize<JsonElement>(body);
-                return StatusCode((int)response.StatusCode, json);
-            }
-            catch (JsonException)
-            {
-                return StatusCode((int)response.StatusCode, new { raw = body });
-            }
+                success = true,
+                endpoint,
+                load_balancing_mode = config.AiServiceLoadBalancingMode,
+                configured_hosts = endpoints.Count,
+                successful_hosts = succeeded.Count,
+                failed_hosts = endpoints.Count - succeeded.Count,
+                paused = queuePayloads.Count > 0 && pausedHosts == queuePayloads.Count,
+                partially_paused = pausedHosts > 0 && pausedHosts < queuePayloads.Count,
+                pause_reason = pauseReasons.Length == 0 ? null : string.Join("; ", pauseReasons),
+                pending_jobs = pendingJobs,
+                active_jobs = activeJobs,
+                processed_jobs = processedJobs,
+                failed_jobs = failedJobs,
+                model_idle_unload_seconds = unloadSeconds.Length == 1 ? unloadSeconds[0] : (int?)null,
+                hosts = hostResults
+            });
         }
         catch (Exception ex)
         {
@@ -229,6 +341,203 @@ public class PureFinSegmentsController : ControllerBase
                 details = ex.Message
             });
         }
+    }
+
+    private static IReadOnlyList<string> ResolveTargetHosts(Configuration.PluginConfiguration configuration, string? requestedHost)
+    {
+        var allHosts = AiServiceEndpointHelper.GetConfiguredBaseUrls(configuration);
+        if (string.IsNullOrWhiteSpace(requestedHost))
+        {
+            return allHosts;
+        }
+
+        if (!Uri.TryCreate(requestedHost, UriKind.Absolute, out var requestedUri))
+        {
+            return Array.Empty<string>();
+        }
+
+        var normalized = requestedUri.ToString().TrimEnd('/');
+        return allHosts.Where(host => string.Equals(host, normalized, StringComparison.OrdinalIgnoreCase)).ToList();
+    }
+
+    private async Task<HostRuntimeResult> QueryRuntimeStatusAsync(HttpClient client, string baseUrl)
+    {
+        var health = await SendJsonRequestAsync(client, $"{baseUrl}/health", HttpMethod.Get, null);
+        var ready = await SendJsonRequestAsync(client, $"{baseUrl}/ready", HttpMethod.Get, null);
+
+        var downstream = ReadObject(health.Payload, "downstream");
+        var violence = ReadObject(downstream, "violence_detector");
+
+        return new HostRuntimeResult
+        {
+            BaseUrl = baseUrl,
+            Success = health.Success || ready.Success,
+            HealthStatusCode = health.StatusCode,
+            ReadyStatusCode = ready.StatusCode,
+            Ready = ReadBool(ready.Payload, "ready")
+                || string.Equals(ReadString(ready.Payload, "status"), "ready", StringComparison.OrdinalIgnoreCase),
+            ModelProfile = ReadString(violence, "model_profile"),
+            ModelId = ReadString(violence, "model_id") ?? ReadString(health.Payload, "violence_model_id"),
+            Device = ReadString(violence, "device"),
+            Health = health.Payload,
+            ReadyPayload = ready.Payload,
+            Error = health.Error ?? ready.Error
+        };
+    }
+
+    private async Task<HostQueueEndpointResult> QueryQueueEndpointAsync(
+        HttpClient client,
+        string baseUrl,
+        string endpoint,
+        HttpMethod method,
+        object? payload)
+    {
+        var response = await SendJsonRequestAsync(client, $"{baseUrl}/queue/{endpoint}", method, payload);
+        return new HostQueueEndpointResult
+        {
+            Success = response.Success,
+            StatusCode = response.StatusCode,
+            Payload = response.Payload,
+            Error = response.Error
+        };
+    }
+
+    private async Task<JsonRequestResult> SendJsonRequestAsync(HttpClient client, string url, HttpMethod method, object? payload)
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(method, url);
+            if (payload != null)
+            {
+                request.Content = JsonContent.Create(payload);
+            }
+
+            using var response = await client.SendAsync(request);
+            var rawBody = await response.Content.ReadAsStringAsync();
+            JsonObject? jsonPayload = null;
+            if (!string.IsNullOrWhiteSpace(rawBody))
+            {
+                try
+                {
+                    jsonPayload = JsonNode.Parse(rawBody) as JsonObject;
+                }
+                catch (JsonException)
+                {
+                    jsonPayload = new JsonObject
+                    {
+                        ["raw"] = rawBody
+                    };
+                }
+            }
+
+            return new JsonRequestResult
+            {
+                Success = response.IsSuccessStatusCode,
+                StatusCode = (int)response.StatusCode,
+                Payload = jsonPayload,
+                Error = response.IsSuccessStatusCode ? null : ReadString(jsonPayload, "error") ?? $"HTTP {(int)response.StatusCode}"
+            };
+        }
+        catch (Exception ex)
+        {
+            return new JsonRequestResult
+            {
+                Success = false,
+                StatusCode = null,
+                Payload = null,
+                Error = ex.Message
+            };
+        }
+    }
+
+    private static JsonObject? ReadObject(JsonObject? source, string propertyName)
+    {
+        return source?[propertyName] as JsonObject;
+    }
+
+    private static string? ReadString(JsonObject? source, string propertyName)
+    {
+        var valueNode = source?[propertyName];
+        return valueNode is JsonValue jsonValue && jsonValue.TryGetValue(out string? value) ? value : null;
+    }
+
+    private static bool ReadBool(JsonObject? source, string propertyName)
+    {
+        var valueNode = source?[propertyName];
+        return valueNode is JsonValue jsonValue && jsonValue.TryGetValue(out bool value) && value;
+    }
+
+    private static int ReadInt(JsonObject? source, string propertyName)
+    {
+        var valueNode = source?[propertyName];
+        return valueNode is JsonValue jsonValue && jsonValue.TryGetValue(out int value) ? value : 0;
+    }
+
+    private static int? ReadNullableInt(JsonObject? source, string propertyName)
+    {
+        var valueNode = source?[propertyName];
+        if (valueNode is JsonValue jsonValue && jsonValue.TryGetValue(out int value))
+        {
+            return value;
+        }
+
+        return null;
+    }
+
+    private sealed class JsonRequestResult
+    {
+        public bool Success { get; set; }
+
+        public int? StatusCode { get; set; }
+
+        public JsonObject? Payload { get; set; }
+
+        public string? Error { get; set; }
+    }
+
+    private sealed class HostRuntimeResult
+    {
+        public string BaseUrl { get; set; } = string.Empty;
+
+        public bool Success { get; set; }
+
+        public int? HealthStatusCode { get; set; }
+
+        public int? ReadyStatusCode { get; set; }
+
+        public bool Ready { get; set; }
+
+        public string? ModelProfile { get; set; }
+
+        public string? ModelId { get; set; }
+
+        public string? Device { get; set; }
+
+        public JsonObject? Health { get; set; }
+
+        public JsonObject? ReadyPayload { get; set; }
+
+        public string? Error { get; set; }
+    }
+
+    private sealed class HostQueueEndpointResult
+    {
+        public bool Success { get; set; }
+
+        public int? StatusCode { get; set; }
+
+        public JsonObject? Payload { get; set; }
+
+        public string? Error { get; set; }
+    }
+
+    private sealed class HostQueueResult
+    {
+        public string BaseUrl { get; set; } = string.Empty;
+
+        public HostRuntimeResult Runtime { get; set; } = new();
+
+        public HostQueueEndpointResult Queue { get; set; } = new();
     }
 
     /// <summary>

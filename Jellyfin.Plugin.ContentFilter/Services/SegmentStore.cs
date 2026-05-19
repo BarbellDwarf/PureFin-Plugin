@@ -65,6 +65,31 @@ public class SegmentStore
     }
 
     /// <summary>
+    /// Gets segments that overlap a time range.
+    /// </summary>
+    /// <param name="mediaId">Media item ID.</param>
+    /// <param name="rangeStart">Range start in seconds.</param>
+    /// <param name="rangeEnd">Range end in seconds.</param>
+    /// <returns>List of overlapping segments.</returns>
+    public IReadOnlyList<Segment> GetSegmentsOverlappingRange(string mediaId, double rangeStart, double rangeEnd)
+    {
+        if (rangeEnd < rangeStart)
+        {
+            (rangeStart, rangeEnd) = (rangeEnd, rangeStart);
+        }
+
+        var data = Get(mediaId);
+        if (data == null)
+        {
+            return Array.Empty<Segment>();
+        }
+
+        return data.Segments
+            .Where(s => s.Start <= rangeEnd && s.End >= rangeStart)
+            .ToList();
+    }
+
+    /// <summary>
     /// Gets the next segment boundary after a timestamp.
     /// </summary>
     /// <param name="mediaId">Media item ID.</param>

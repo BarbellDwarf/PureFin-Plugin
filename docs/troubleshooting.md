@@ -33,7 +33,7 @@
    ```bash
    curl http://localhost:3001/ready   # nsfw-detector
    curl http://localhost:3002/ready   # scene-analyzer
-   curl http://localhost:3004/ready   # content-classifier
+   curl http://localhost:3003/ready   # violence-detector
    ```
 
 3. **Expected response when ready:**
@@ -69,9 +69,9 @@
 1. Check `ai-services/models/model-manifest.json` to see which model files are expected and at which paths.
 
 2. Obtain real model files:
-   - `nsfw_model.h5` — Keras NSFW classifier
-   - `violence_model.h5` — Keras violence classifier
-   - CLIP model weights — for content-classifier
+   - NSFW model files (`models/nsfw/mobilenet_v2_140_224/*`)
+   - Violence profile model files (`models/violence/speed|balanced|quality/*`) or allow lazy download
+   - CLIP model weights — for content-classifier (legacy/optional)
 
 3. Place model files in the paths specified in the manifest.
 

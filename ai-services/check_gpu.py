@@ -61,7 +61,7 @@ def check_services_health():
         services = {
             'Scene Analyzer': 'http://localhost:3002/health',
             'NSFW Detector': 'http://localhost:3001/health',
-            'Content Classifier': 'http://localhost:3004/health'
+            'Violence Detector': 'http://localhost:3003/health'
         }
         
         print("\nChecking running services:")
@@ -91,7 +91,7 @@ def print_recommendations(has_driver, has_docker_gpu):
     if has_driver and has_docker_gpu:
         print("🎉 GPU acceleration is fully available!")
         print("\nTo use GPU acceleration:")
-        print("  docker-compose -f docker-compose.gpu.yml up -d")
+        print("  docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build -d")
         print("\nExpected performance: 5-10x faster than CPU")
     elif has_driver and not has_docker_gpu:
         print("⚠️  NVIDIA GPU detected but Docker GPU support not configured")
@@ -103,7 +103,7 @@ def print_recommendations(has_driver, has_docker_gpu):
     else:
         print("ℹ️  No GPU detected - will use CPU")
         print("\nTo start services with CPU:")
-        print("  docker-compose up -d")
+        print("  docker compose -f docker-compose.yml -f docker-compose.cpu.yml up --build -d")
         print("\nNote: CPU performance is adequate but slower than GPU")
 
 def main():

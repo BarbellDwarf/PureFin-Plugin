@@ -10,9 +10,8 @@ Usage:
 
 What it does:
   1. NSFW model      — Downloads GantMan MobileNet NSFW SavedModel from GitHub releases.
-  2. Violence model  — Bootstraps a .pth file using MobileNetV2 ImageNet weights + an
-                       untrained custom head that matches the production architecture.
-                       NOT trained for violence detection — test scaffold only.
+  2. Violence model  — Downloads and caches one of the supported profile models:
+                       speed, balanced, quality.
   3. CLIP model      — Prints a reminder; CLIP auto-downloads from HuggingFace on startup.
 """
 
@@ -33,9 +32,11 @@ NSFW_ZIP_URLS = [
     "https://github.com/GantMan/nsfw_model/releases/download/1.1.0/nsfw_mobilenet_v2_140_224.zip",
 ]
 
-VIOLENCE_BOOTSTRAP_NOTE = (
-    "ImageNet weights only - NOT trained for violence detection - test scaffold only"
-)
+VIOLENCE_MODEL_PROFILES = {
+    "speed": "nghiabntl/vit-base-violence-detection",
+    "balanced": "jaranohaal/vit-base-violence-detection",
+    "quality": "framasoft/vit-base-violence-detection",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -145,117 +146,42 @@ def bootstrap_nsfw(models_dir: str, force: bool) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# 2. Violence model (bootstrap)
+# 2. Violence model (HuggingFace)
 # ---------------------------------------------------------------------------
 
-def _define_violence_model_class():
-    """
-    Import torch/torchvision and return the ViolenceModelPyTorch class.
+def bootstrap_violence(models_dir: str, force: bool, profile: str) -> bool:
+    """Download and cache the violence detector model from HuggingFace."""
+    _print_section(f"Violence Detection Model (HuggingFace ViT, profile={profile})")
 
-    The architecture must exactly match the one in
-    services/content-classifier/app_pytorch.py so that torch.load() with
-    load_state_dict() succeeds at inference time.
-    """
-    import torch.nn as nn
-    from torchvision import models as tv_models
+    model_id = VIOLENCE_MODEL_PROFILES[profile]
+    model_dir = os.path.join(models_dir, "violence", profile)
+    config_file = os.path.join(model_dir, "config.json")
 
-    class ViolenceModelPyTorch(nn.Module):
-        def __init__(self):
-            super(ViolenceModelPyTorch, self).__init__()
-            mobilenet = tv_models.mobilenet_v2(weights=tv_models.MobileNet_V2_Weights.IMAGENET1K_V1)
-            self.features = mobilenet.features
-            self.pool = nn.AdaptiveAvgPool2d((1, 1))
-            self.classifier = nn.Sequential(
-                nn.Flatten(),
-                nn.Linear(1280, 128),
-                nn.ReLU(inplace=True),
-                nn.Dropout(0.5),
-                nn.Linear(128, 1),
-                nn.Sigmoid(),
-            )
+    if not force and os.path.isfile(config_file):
+        print(f"  [SKIP] Model already present: {model_dir}")
+        return True
 
-        def forward(self, x):
-            x = self.features(x)
-            x = self.pool(x)
-            x = self.classifier(x)
-            return x
-
-    return ViolenceModelPyTorch
-
-
-def bootstrap_violence(models_dir: str, force: bool) -> bool:
-    """Create a bootstrap .pth file with MobileNetV2 ImageNet weights."""
-    _print_section("Violence Detection Model (PyTorch — bootstrap scaffold)")
-
-    violence_dir = os.path.join(models_dir, "violence")
-    pth_path = os.path.join(violence_dir, "violence_model.pth")
-
-    # Skip if a real (non-bootstrap) model is already present
-    if not force and os.path.isfile(pth_path):
-        try:
-            import torch
-            checkpoint = torch.load(pth_path, map_location="cpu", weights_only=False)
-            if not checkpoint.get("bootstrap", False):
-                print("  [SKIP] A non-bootstrap violence model already exists. Leaving it untouched.")
-                return True
-            print("  Existing file is a bootstrap scaffold; re-bootstrapping.")
-        except Exception:
-            print("  Existing .pth file is unreadable; will overwrite.")
-
-    # Try importing torch / torchvision
     try:
-        import torch
+        from transformers import AutoImageProcessor, AutoModelForImageClassification
     except ImportError:
         print(
-            "  [SKIP] torch is not installed. Install with: pip install torch torchvision",
+            "  [ERROR] transformers is not installed. Install with: pip install transformers torch torchvision",
             file=sys.stderr,
         )
         return False
 
+    os.makedirs(model_dir, exist_ok=True)
     try:
-        from torchvision import models as _  # noqa: F401
-    except ImportError:
-        print(
-            "  [SKIP] torchvision is not installed. Install with: pip install torchvision",
-            file=sys.stderr,
-        )
-        return False
-
-    print("  Building ViolenceModelPyTorch with MobileNetV2 ImageNet weights …")
-    ViolenceModelPyTorch = _define_violence_model_class()
-
-    try:
-        model = ViolenceModelPyTorch()
-        model.eval()
+        print(f"  Downloading model: {model_id}")
+        processor = AutoImageProcessor.from_pretrained(model_id)
+        model = AutoModelForImageClassification.from_pretrained(model_id)
+        processor.save_pretrained(model_dir)
+        model.save_pretrained(model_dir)
     except Exception as exc:
-        print(f"  [ERROR] Could not instantiate model: {exc}", file=sys.stderr)
+        print(f"  [ERROR] Failed to download violence model: {exc}", file=sys.stderr)
         return False
 
-    os.makedirs(violence_dir, exist_ok=True)
-
-    checkpoint = {
-        "model_state_dict": model.state_dict(),
-        "bootstrap": True,
-        "note": VIOLENCE_BOOTSTRAP_NOTE,
-    }
-
-    try:
-        import torch
-        torch.save(checkpoint, pth_path)
-    except Exception as exc:
-        print(f"  [ERROR] Failed to save model: {exc}", file=sys.stderr)
-        return False
-
-    size_mb = os.path.getsize(pth_path) / (1024 * 1024)
-    print(f"  [OK] Bootstrap model saved: {pth_path} ({size_mb:.1f} MB)")
-    print()
-    print(
-        "  *** WARNING ***********************************************************\n"
-        "  Violence model bootstrapped with ImageNet weights only.\n"
-        "  Results will NOT be accurate for violence detection.\n"
-        "  This is a test scaffold to verify the pipeline runs.\n"
-        "  ***********************************************************************"
-    )
+    print(f"  [OK] Violence model cached at: {model_dir}")
     return True
 
 
@@ -263,12 +189,12 @@ def bootstrap_violence(models_dir: str, force: bool) -> bool:
 # 3. CLIP model
 # ---------------------------------------------------------------------------
 
-def print_clip_info() -> None:
+def print_clip_info(models_dir: str) -> None:
     _print_section("CLIP Model (content-classifier)")
     print(
         "  CLIP model will auto-download from HuggingFace on content-classifier\n"
         "  startup (~600 MB). Ensure internet access from the container.\n"
-        "  The model is cached at {models_dir}/clip/ after the first download."
+        f"  The model is cached at {models_dir}/content/clip-vit-base-patch32 after the first download."
     )
 
 
@@ -299,6 +225,12 @@ def parse_args():
         help="Skip violence model bootstrap",
     )
     parser.add_argument(
+        "--violence-profile",
+        choices=sorted(VIOLENCE_MODEL_PROFILES.keys()),
+        default="balanced",
+        help="Violence model profile to pre-download (default: balanced)",
+    )
+    parser.add_argument(
         "--force",
         action="store_true",
         help="Re-download / re-bootstrap even if files already exist",
@@ -325,12 +257,12 @@ def main() -> int:
         results["nsfw"] = True  # not a failure
 
     if not args.skip_violence:
-        results["violence"] = bootstrap_violence(models_dir, args.force)
+        results["violence"] = bootstrap_violence(models_dir, args.force, args.violence_profile)
     else:
         print("\n[SKIP] --skip-violence flag set; skipping violence model bootstrap.")
         results["violence"] = True
 
-    print_clip_info()
+    print_clip_info(models_dir)
 
     # Summary
     _print_section("Summary")

@@ -61,17 +61,15 @@ wait_for_ready "$SCENE_ANALYZER_URL" "scene-analyzer"
 # ---------------------------------------------------------------------------
 # Send analysis request
 # ---------------------------------------------------------------------------
-ITEM_ID="test-$(date +%s)"
-
 echo ""
 echo "Sending analysis request..."
-echo "  media_path : $CONTAINER_PATH"
-echo "  item_id    : $ITEM_ID"
+echo "  video_path : $CONTAINER_PATH"
+echo "  sample_count: 5"
 echo ""
 
 RESPONSE=$(curl -sf -X POST "${SCENE_ANALYZER_URL}/analyze" \
   -H "Content-Type: application/json" \
-  -d "{\"media_path\": \"${CONTAINER_PATH}\", \"item_id\": \"${ITEM_ID}\"}" \
+  -d "{\"video_path\": \"${CONTAINER_PATH}\", \"sample_count\": 5}" \
   2>&1) || {
   echo "ERROR: Request to scene-analyzer failed."
   echo "       Response: $RESPONSE"
@@ -86,4 +84,4 @@ echo "=== Analysis Result ==="
 echo "$RESPONSE" | python3 -m json.tool
 echo "======================="
 echo ""
-echo "Done. item_id: $ITEM_ID"
+echo "Done."

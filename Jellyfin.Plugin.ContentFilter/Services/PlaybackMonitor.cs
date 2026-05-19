@@ -16,6 +16,9 @@ namespace Jellyfin.Plugin.ContentFilter.Services;
 /// </summary>
 public class PlaybackMonitor : IDisposable
 {
+    private static readonly TimeSpan MonitorInterval = TimeSpan.FromMilliseconds(200);
+    private const double ImminentSegmentLookaheadSeconds = 0.30;
+
     private readonly ISessionManager _sessionManager;
     private readonly SegmentStore _segmentStore;
     private readonly ILogger<PlaybackMonitor> _logger;
@@ -39,8 +42,8 @@ public class PlaybackMonitor : IDisposable
         _segmentStore = segmentStore;
         _logger = logger;
 
-        // Start monitoring timer (checks every 500ms)
-        _monitorTimer = new Timer(MonitorSessions, null, TimeSpan.FromMilliseconds(500), TimeSpan.FromMilliseconds(500));
+        // Poll frequently enough to catch short segments without noticeable delay.
+        _monitorTimer = new Timer(MonitorSessions, null, MonitorInterval, MonitorInterval);
 
         _logger.LogInformation("Playback monitor started");
     }
@@ -119,6 +122,16 @@ public class PlaybackMonitor : IDisposable
 
         // Filter segments based on sensitivity-derived thresholds
         var filterableSegment = activeSegments.FirstOrDefault(segment => segment.ShouldFilter(effectiveConfig));
+
+        // Also look slightly ahead so very short segments are skipped before they pass between timer ticks.
+        if (filterableSegment == null)
+        {
+            var lookaheadEnd = state.LastPosition + ImminentSegmentLookaheadSeconds;
+            filterableSegment = _segmentStore
+                .GetSegmentsOverlappingRange(state.MediaId, state.LastPosition, lookaheadEnd)
+                .Where(segment => segment.Start >= state.LastPosition)
+                .FirstOrDefault(segment => segment.ShouldFilter(effectiveConfig));
+        }
 
         // Check if we entered a new segment that should be filtered
         if (filterableSegment != null && !Equals(filterableSegment, state.ActiveSegment))

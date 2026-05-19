@@ -9,6 +9,8 @@ Access plugin configuration: **Dashboard → Plugins → PureFin → Settings**
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
 | `AiServiceBaseUrl` | string | `http://localhost:3002` | Base URL for the scene-analyzer service (the plugin's primary AI endpoint) |
+| `AiServiceBaseUrls` | string | `` | Optional additional scene-analyzer hosts (comma/semicolon/newline-separated) |
+| `AiServiceLoadBalancingMode` | string | `round_robin` | Host selection mode: `round_robin` or `failover` |
 | `Sensitivity` | string | `moderate` | Sensitivity preset: `strict`, `moderate`, or `permissive` |
 | `EnableNudity` | bool | `true` | Enable NSFW/nudity filtering |
 | `EnableImmodesty` | bool | `true` | Enable immodesty filtering |
@@ -42,7 +44,7 @@ The `Sensitivity` setting overrides the individual NSFW and violence threshold s
 ## Content Categories
 
 - **Nudity / Immodesty**: Detected by the nsfw-detector service (port 3001).
-- **Violence**: Detected by the content-classifier service (port 3004).
+- **Violence**: Detected by the violence-detector service (port 3003).
 - **Profanity**: Planned — requires Whisper audio pipeline, not yet active.
 
 ---
@@ -62,7 +64,7 @@ The PureFin settings page includes queue controls backed by the scene-analyzer s
 - **Pause Queue**
 - **Resume Queue**
 
-Queue status includes pending jobs, active jobs, processed count, failed count, and idle-unload timeout.
+Queue status includes pending jobs, active jobs, processed count, failed count, idle-unload timeout, and per-host runtime/model metadata when multiple AI hosts are configured.
 
 When paused, new analysis requests are still accepted and queued, but processing is halted until resumed.
 

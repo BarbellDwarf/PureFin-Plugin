@@ -87,6 +87,8 @@ public class SensitivityThresholdsTests
             EnableNudity = false,
             EnableViolence = true,
             AiServiceBaseUrl = "http://test:9999",
+            AiServiceBaseUrls = "http://test-a:3002,http://test-b:3002",
+            AiServiceLoadBalancingMode = "failover",
             ProfanityThreshold = 0.77
         };
 
@@ -95,6 +97,8 @@ public class SensitivityThresholdsTests
         Assert.False(effective.EnableNudity);
         Assert.True(effective.EnableViolence);
         Assert.Equal("http://test:9999", effective.AiServiceBaseUrl);
+        Assert.Equal("http://test-a:3002,http://test-b:3002", effective.AiServiceBaseUrls);
+        Assert.Equal("failover", effective.AiServiceLoadBalancingMode);
         Assert.Equal(0.77, effective.ProfanityThreshold, precision: 2);
     }
 }

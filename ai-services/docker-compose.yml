@@ -42,14 +42,40 @@ services:
     environment:
       - PROCESSING_DIR=/tmp/processing
       - NSFW_DETECTOR_URL=http://nsfw-detector:3000
-      - CONTENT_CLASSIFIER_URL=http://content-classifier:3000
+      - VIOLENCE_DETECTOR_URL=http://violence-detector:3000
+      - VIOLENCE_MODEL_VERSION=${VIOLENCE_MODEL_VERSION:-jaranohaal/vit-base-violence-detection}
       - MODEL_IDLE_UNLOAD_SECONDS=${MODEL_IDLE_UNLOAD_SECONDS:-900}
       - MODEL_IDLE_CHECK_SECONDS=${MODEL_IDLE_CHECK_SECONDS:-30}
       - ANALYSIS_QUEUE_MAX_SIZE=${ANALYSIS_QUEUE_MAX_SIZE:-8}
-      - ANALYSIS_QUEUE_WAIT_TIMEOUT_SECONDS=${ANALYSIS_QUEUE_WAIT_TIMEOUT_SECONDS:-3600}
+      - ANALYSIS_QUEUE_WAIT_TIMEOUT_SECONDS=${ANALYSIS_QUEUE_WAIT_TIMEOUT_SECONDS:-10800}
     depends_on:
       - nsfw-detector
-      - content-classifier
+      - violence-detector
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+
+  violence-detector:
+    build: ./services/violence-detector
+    container_name: violence-detector
+    ports:
+      - "3003:3000"
+    volumes:
+      - ${MODELS_PATH:-./models}:/app/models:rw
+      - ${TEMP_PATH:-./temp}:/tmp/processing
+      - ${JELLYFIN_MEDIA_PATH:-/path/to/your/media}:/mnt/media:ro
+    environment:
+      - MODEL_PATH=/app/models
+      - VIOLENCE_MODEL_PROFILE=${VIOLENCE_MODEL_PROFILE:-balanced}
+      - VIOLENCE_MODEL_ID=${VIOLENCE_MODEL_ID:-}
+      - VIOLENCE_MODEL_REVISION=${VIOLENCE_MODEL_REVISION:-}
+      - VIOLENCE_MODEL_SUBDIR=${VIOLENCE_MODEL_SUBDIR:-}
+      - MODEL_IDLE_UNLOAD_SECONDS=${MODEL_IDLE_UNLOAD_SECONDS:-900}
+      - MODEL_IDLE_CHECK_SECONDS=${MODEL_IDLE_CHECK_SECONDS:-30}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
       interval: 30s
@@ -59,6 +85,7 @@ services:
     restart: unless-stopped
 
   content-classifier:
+    profiles: ["legacy"]
     build: ./services/content-classifier
     container_name: content-classifier
     ports:

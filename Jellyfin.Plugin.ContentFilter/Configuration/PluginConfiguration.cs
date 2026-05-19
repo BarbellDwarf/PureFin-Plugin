@@ -77,6 +77,18 @@ public class PluginConfiguration : BasePluginConfiguration
     public string AiServiceBaseUrl { get; set; } = "http://localhost:3002";
 
     /// <summary>
+    /// Gets or sets additional AI service base URLs used for load spreading/failover.
+    /// Accepts comma, semicolon, or newline-separated values.
+    /// </summary>
+    public string AiServiceBaseUrls { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets AI service endpoint selection mode.
+    /// Supported values: "round_robin" (default), "failover".
+    /// </summary>
+    public string AiServiceLoadBalancingMode { get; set; } = "round_robin";
+
+    /// <summary>
     /// Gets or sets a value indicating whether to enable OSD feedback during filtering.
     /// </summary>
     public bool EnableOsdFeedback { get; set; } = false;
@@ -148,6 +160,8 @@ public class PluginConfiguration : BasePluginConfiguration
             SegmentDirectory = SegmentDirectory,
             PreferCommunityData = PreferCommunityData,
             AiServiceBaseUrl = AiServiceBaseUrl,
+            AiServiceBaseUrls = AiServiceBaseUrls,
+            AiServiceLoadBalancingMode = AiServiceLoadBalancingMode,
             EnableOsdFeedback = EnableOsdFeedback,
             SceneDetectionMethod = SceneDetectionMethod,
             FfmpegSceneThreshold = FfmpegSceneThreshold,

@@ -213,8 +213,8 @@ Test video: "Holes (2003)" - 117 minutes, 1080p
 1. Rebuild scene-analyzer service:
    ```bash
    cd ai-services
-   docker-compose -f docker-compose.gpu.yml build scene-analyzer
-   docker-compose -f docker-compose.gpu.yml up -d scene-analyzer
+   docker compose -f docker-compose.yml -f docker-compose.gpu.yml build scene-analyzer
+   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d scene-analyzer
    ```
 
 2. Verify in health endpoint:

@@ -68,9 +68,9 @@ Pre-release builds are marked as GitHub pre-releases and are not included in the
 AI services refuse to run with placeholder/random model files. Real model files must be provided:
 
 1. Obtain trained model files for:
-   - `nsfw_model.h5` (Keras NSFW classifier)
-   - `violence_model.h5` (Keras violence classifier)
-   - CLIP model (for content-classifier)
+   - NSFW model files (`models/nsfw/mobilenet_v2_140_224/*`)
+   - Violence model profile files (`models/violence/speed|balanced|quality/*`) or enable lazy download
+   - CLIP model (for content-classifier, legacy/optional)
 
 2. Place them in the paths defined in `ai-services/models/model-manifest.json`.
 

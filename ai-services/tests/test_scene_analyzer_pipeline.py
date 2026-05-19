@@ -50,14 +50,25 @@ def test_build_scene_windows_covers_full_duration():
 def test_build_sample_timestamps_stays_inside_scene():
     scene = {"start": 10.0, "end": 20.0}
     timestamps = scene_analyzer._build_sample_timestamps(scene, requested_samples=5, total_scene_count=50)
-    assert len(timestamps) == 5
+    assert len(timestamps) >= 5
     assert min(timestamps) > 10.0
     assert max(timestamps) < 20.0
+
+
+def test_build_sample_timestamps_short_scene_gets_dense_sampling():
+    scene = {"start": 30.0, "end": 30.9}
+    timestamps = scene_analyzer._build_sample_timestamps(scene, requested_samples=3, total_scene_count=800)
+    assert len(timestamps) >= 3
+    assert min(timestamps) >= 30.0
+    assert max(timestamps) <= 30.9
 
 
 def test_extract_violence_score_accepts_multiple_response_formats():
     assert scene_analyzer._extract_violence_score({"violence": 0.4}) == 0.4
     assert scene_analyzer._extract_violence_score({"violence": {"general_violence": 0.6}}) == 0.6
+    assert scene_analyzer._extract_violence_score({"violence_score": 0.9}) == 0.9
+    assert scene_analyzer._extract_violence_score({"scores": {"non_violence": 0.2, "violence": 0.8}}) == 0.8
+    assert scene_analyzer._extract_violence_score({"scores": {"non_violence": 0.1, "safe": 0.9}}) == 0.9
     assert scene_analyzer._extract_violence_score(
         {"violence": {"category_scores": {"fighting": 0.7, "blood": 0.5}}}
     ) == 0.7

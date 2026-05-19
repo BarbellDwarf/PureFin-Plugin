@@ -40,7 +40,8 @@ ERROR_COUNT = Counter('scene_analyzer_errors_total', 'Total scene analysis error
 
 # Service URLs
 NSFW_DETECTOR_URL = os.getenv('NSFW_DETECTOR_URL', 'http://nsfw-detector:3000')
-CONTENT_CLASSIFIER_URL = os.getenv('CONTENT_CLASSIFIER_URL', 'http://content-classifier:3000')
+VIOLENCE_DETECTOR_URL = os.getenv('VIOLENCE_DETECTOR_URL', 'http://violence-detector:3000')
+VIOLENCE_MODEL_VERSION = os.getenv('VIOLENCE_MODEL_VERSION', 'jaranohaal/vit-base-violence-detection')
 USE_GPU = os.getenv('USE_GPU', '0') == '1'
 USE_AMF = os.getenv('USE_AMF', '0') == '1'
 
@@ -60,7 +61,7 @@ TRANSNET_DYNAMIC_PERCENTILE = float(os.getenv('TRANSNET_DYNAMIC_PERCENTILE', '99
 MODEL_IDLE_UNLOAD_SECONDS = int(os.getenv('MODEL_IDLE_UNLOAD_SECONDS', '900'))
 MODEL_IDLE_CHECK_SECONDS = int(os.getenv('MODEL_IDLE_CHECK_SECONDS', '30'))
 ANALYSIS_QUEUE_MAX_SIZE = max(1, int(os.getenv('ANALYSIS_QUEUE_MAX_SIZE', '8')))
-ANALYSIS_QUEUE_WAIT_TIMEOUT_SECONDS = int(os.getenv('ANALYSIS_QUEUE_WAIT_TIMEOUT_SECONDS', '3600'))
+ANALYSIS_QUEUE_WAIT_TIMEOUT_SECONDS = int(os.getenv('ANALYSIS_QUEUE_WAIT_TIMEOUT_SECONDS', '10800'))
 
 model_lock = threading.Lock()
 transnet_last_used_monotonic = time.monotonic()
@@ -529,11 +530,20 @@ def extract_scenes(video_path, method='transnetv2', **kwargs):
 
 def _extract_violence_score(violence_payload):
     """Extract a normalized violence score from multiple response formats."""
+    if isinstance(violence_payload.get('violence_score'), (int, float)):
+        return float(violence_payload.get('violence_score'))
+
     violence_value = violence_payload.get('violence', 0)
 
     if isinstance(violence_value, dict):
         if 'general_violence' in violence_value:
             return float(violence_value.get('general_violence', 0.0))
+        if 'violence' in violence_value:
+            return float(violence_value.get('violence', 0.0))
+        if 'violent' in violence_value:
+            return float(violence_value.get('violent', 0.0))
+        if 'non_violence' in violence_value and len(violence_value) == 2:
+            return float(1.0 - violence_value.get('non_violence', 0.0))
         if 'overall_violence_score' in violence_value:
             return float(violence_value.get('overall_violence_score', 0.0))
         category_scores = violence_value.get('category_scores')
@@ -546,8 +556,18 @@ def _extract_violence_score(violence_payload):
     if isinstance(violence_value, (int, float)):
         return float(violence_value)
 
-    if isinstance(violence_payload.get('violence_score'), (int, float)):
-        return float(violence_payload.get('violence_score'))
+    scores = violence_payload.get('scores')
+    if isinstance(scores, dict) and scores:
+        normalized = {str(k).lower().replace('-', '_'): float(v) for k, v in scores.items()}
+        for key in ('violence', 'violent', 'general_violence'):
+            if key in normalized:
+                return normalized[key]
+        if 'non_violence' in normalized and len(normalized) == 2:
+            return float(1.0 - normalized['non_violence'])
+        for key, value in normalized.items():
+            if 'violence' in key or 'violent' in key:
+                return value
+        return float(max(normalized.values()))
 
     return 0.0
 
@@ -556,14 +576,14 @@ def _build_sample_timestamps(scene, requested_samples, total_scene_count):
     """Build robust sampling timestamps inside scene boundaries."""
     sample_target = max(1, int(requested_samples))
 
-    # Scale sample count down when the movie has many scene boundaries so total
-    # inference time stays reasonable.
-    if total_scene_count >= 1200:
-        sample_target = min(sample_target, 2)
+    # Keep quality stable for long/complex movies. We still cap extreme cases, but avoid
+    # reducing sampling so aggressively that short flagged content is missed.
+    if total_scene_count >= 1500:
+        sample_target = min(sample_target, 8)
+    elif total_scene_count >= 900:
+        sample_target = min(sample_target, 10)
     elif total_scene_count >= 600:
-        sample_target = min(sample_target, 3)
-    elif total_scene_count >= 300:
-        sample_target = min(sample_target, 4)
+        sample_target = min(sample_target, 12)
 
     start = float(scene['start'])
     end = float(scene['end'])
@@ -571,15 +591,19 @@ def _build_sample_timestamps(scene, requested_samples, total_scene_count):
     if duration <= 0:
         return [start]
 
-    if duration <= 1:
-        sample_target = 1
-    elif duration <= 5:
-        # Short scenes: sample beginning, middle and end to avoid missing fast cuts.
-        sample_target = min(sample_target, 3)
-    elif duration <= 15:
-        sample_target = min(sample_target, 4)
-    elif duration <= 40:
-        sample_target = min(sample_target, 5)
+    # Enforce denser coverage for short scenes where a single revealing frame can be missed.
+    if duration <= 1.0:
+        sample_target = max(sample_target, 4)
+    elif duration <= 3.0:
+        sample_target = max(sample_target, 5)
+    elif duration <= 8.0:
+        sample_target = max(sample_target, 7)
+    elif duration <= 15.0:
+        sample_target = max(sample_target, 8)
+    elif duration <= 40.0:
+        sample_target = max(sample_target, 10)
+
+    sample_target = min(sample_target, 15)
 
     padding = min(0.25, duration * 0.1)
     sample_start = start + padding
@@ -781,16 +805,16 @@ def _analyze_video_payload(data):
                         nudity_scores.append(nsfw_data.get('nudity', 0))
                         immodesty_scores.append(nsfw_data.get('immodesty', 0))
 
-                    # Call content classifier for violence
+                    # Call dedicated violence detector service.
                     with open(frame_path, 'rb') as f:
                         files = {'image': f}
-                        violence_response = session.post(f"{CONTENT_CLASSIFIER_URL}/classify",
+                        violence_response = session.post(f"{VIOLENCE_DETECTOR_URL}/analyze",
                                                          files=files, timeout=60)
 
                     if violence_response.status_code == 503:
                         raise AnalysisJobError(503, {
                             'error': 'Downstream service not ready',
-                            'service': 'content-classifier',
+                            'service': 'violence-detector',
                             'degraded': True
                         })
                     if violence_response.status_code == 200:
@@ -828,7 +852,7 @@ def _analyze_video_payload(data):
             results.append(result)
 
             logger.info("Scene %d/%d: violence=%.3f, nudity=%.3f, immodesty=%.3f",
-                        i + 1, len(scenes), avg_violence, avg_nudity, avg_immodesty)
+                        i + 1, len(scenes), avg_violence, max_nudity, max_immodesty)
 
         except AnalysisJobError:
             raise
@@ -846,6 +870,9 @@ def _analyze_video_payload(data):
                 }
             })
 
+    downstream = _downstream_snapshot()
+    violence_runtime = downstream.get('violence_detector', {})
+
     return {
         'success': True,
         'schema_version': '1.0',
@@ -854,7 +881,8 @@ def _analyze_video_payload(data):
         'scenes': results,
         'model_versions': {
             'nsfw-mobilenet': '1.0.0',
-            'violence-classifier': '1.0.0'
+            'violence-detector': violence_runtime.get('model_id') or VIOLENCE_MODEL_VERSION,
+            'violence-profile': violence_runtime.get('model_profile') or 'balanced',
         },
         'timestamp': datetime.now().isoformat()
     }
@@ -894,11 +922,79 @@ def _analysis_queue_worker():
             analysis_queue.task_done()
 
 
+def _request_json(url, timeout=5):
+    """Call a downstream endpoint and capture status/payload without raising."""
+    try:
+        resp = session.get(url, timeout=timeout)
+        payload = resp.json()
+        return {
+            'reachable': True,
+            'status_code': resp.status_code,
+            'payload': payload,
+            'error': None,
+        }
+    except requests.RequestException as ex:
+        return {
+            'reachable': False,
+            'status_code': None,
+            'payload': None,
+            'error': str(ex),
+        }
+    except ValueError as ex:
+        return {
+            'reachable': True,
+            'status_code': 200,
+            'payload': None,
+            'error': f'invalid-json: {ex}',
+        }
+
+
+def _downstream_snapshot():
+    """Collect downstream service readiness/runtime metadata."""
+    nsfw_ready = _request_json(f"{NSFW_DETECTOR_URL}/ready", timeout=5)
+    violence_ready = _request_json(f"{VIOLENCE_DETECTOR_URL}/ready", timeout=5)
+    violence_health = _request_json(f"{VIOLENCE_DETECTOR_URL}/health", timeout=5)
+
+    return {
+        'nsfw_detector': {
+            'base_url': NSFW_DETECTOR_URL,
+            'ready': nsfw_ready['status_code'] == 200,
+            'status_code': nsfw_ready['status_code'],
+            'error': nsfw_ready['error'],
+            'ready_payload': nsfw_ready['payload'],
+        },
+        'violence_detector': {
+            'base_url': VIOLENCE_DETECTOR_URL,
+            'ready': violence_ready['status_code'] == 200,
+            'status_code': violence_ready['status_code'],
+            'error': violence_ready['error'],
+            'ready_payload': violence_ready['payload'],
+            'health_payload': violence_health['payload'],
+            'model_id': (
+                (violence_health['payload'] or {}).get('model_id')
+                if isinstance(violence_health['payload'], dict)
+                else None
+            ) or VIOLENCE_MODEL_VERSION,
+            'model_profile': (
+                (violence_health['payload'] or {}).get('model_profile')
+                if isinstance(violence_health['payload'], dict)
+                else None
+            ),
+            'device': (
+                (violence_health['payload'] or {}).get('device')
+                if isinstance(violence_health['payload'], dict)
+                else None
+            ),
+        },
+    }
+
+
 @app.route('/health', methods=['GET'])
 def health_check():
     """Health check endpoint."""
     queue_state = _queue_snapshot()
     idle_seconds = int(time.monotonic() - transnet_last_used_monotonic)
+    downstream = _downstream_snapshot()
     return jsonify({
         'status': 'healthy',
         'use_gpu_requested': USE_GPU,
@@ -912,6 +1008,9 @@ def health_check():
         'model_idle_unload_seconds': MODEL_IDLE_UNLOAD_SECONDS,
         'seconds_since_transnet_use': idle_seconds,
         'queue': queue_state,
+        'downstream': downstream,
+        'violence_model_id': downstream['violence_detector'].get('model_id') or VIOLENCE_MODEL_VERSION,
+        'violence_model_profile': downstream['violence_detector'].get('model_profile'),
         'timestamp': datetime.now().isoformat(),
         'service': 'scene-analyzer'
     })
@@ -920,26 +1019,51 @@ def health_check():
 @app.route('/ready', methods=['GET'])
 def ready():
     """Readiness endpoint — checks that all downstream services are ready."""
-    try:
-        nsfw_resp = requests.get(f"{NSFW_DETECTOR_URL}/ready", timeout=5)
-        classifier_resp = requests.get(f"{CONTENT_CLASSIFIER_URL}/ready", timeout=5)
+    downstream = _downstream_snapshot()
+    nsfw_ready = downstream['nsfw_detector']['ready']
+    violence_ready = downstream['violence_detector']['ready']
 
-        if nsfw_resp.status_code == 200 and classifier_resp.status_code == 200:
-            return jsonify({'status': 'ready', 'models_loaded': True})
+    if nsfw_ready and violence_ready:
+        return jsonify({'status': 'ready', 'models_loaded': True, 'downstream': downstream})
 
-        failed = 'nsfw-detector' if nsfw_resp.status_code != 200 else 'content-classifier'
-        return jsonify({
-            'status': 'degraded',
-            'models_loaded': False,
-            'reason': f'Downstream service not ready: {failed}'
-        }), 503
+    if not nsfw_ready and not violence_ready:
+        failed = 'nsfw-detector, violence-detector'
+    elif not nsfw_ready:
+        failed = 'nsfw-detector'
+    else:
+        failed = 'violence-detector'
 
-    except requests.RequestException as e:
-        return jsonify({
-            'status': 'degraded',
-            'models_loaded': False,
-            'reason': f'Could not reach downstream services: {e}'
-        }), 503
+    details = []
+    if downstream['nsfw_detector']['error']:
+        details.append(f"nsfw-detector={downstream['nsfw_detector']['error']}")
+    if downstream['violence_detector']['error']:
+        details.append(f"violence-detector={downstream['violence_detector']['error']}")
+
+    reason = f'Downstream service not ready: {failed}'
+    if details:
+        reason = f"{reason} ({'; '.join(details)})"
+
+    return jsonify({
+        'status': 'degraded',
+        'models_loaded': False,
+        'reason': reason,
+        'downstream': downstream
+    }), 503
+
+
+@app.route('/runtime', methods=['GET'])
+def runtime_status():
+    """Runtime metadata endpoint for plugin-side host/model introspection."""
+    downstream = _downstream_snapshot()
+    return jsonify({
+        'success': True,
+        'service': 'scene-analyzer',
+        'downstream': downstream,
+        'violence_model_id': downstream['violence_detector'].get('model_id') or VIOLENCE_MODEL_VERSION,
+        'violence_model_profile': downstream['violence_detector'].get('model_profile'),
+        'violence_device': downstream['violence_detector'].get('device'),
+        'timestamp': datetime.now().isoformat(),
+    })
 
 
 @app.route('/queue/status', methods=['GET'])

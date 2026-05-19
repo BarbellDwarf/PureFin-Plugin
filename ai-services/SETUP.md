@@ -7,7 +7,7 @@ This guide will help you set up the PureFin Content Filter AI services that anal
 The AI services consist of three Docker containers:
 - **Scene Analyzer** (port 3002): Detects scene boundaries and coordinates analysis
 - **NSFW Detector** (port 3001): Identifies nudity and immodest content
-- **Content Classifier** (port 3004): Classifies violence, profanity, and other categories
+- **Violence Detector** (port 3003): Classifies violent vs non-violent frames with a dedicated ViT model
 
 ## Prerequisites
 
@@ -62,6 +62,19 @@ The template uses environment variables from `.env`, so no manual editing needed
 docker-compose up -d
 ```
 
+Alternative startup modes:
+
+```bash
+# Explicit CPU mode
+docker compose -f docker-compose.yml -f docker-compose.cpu.yml up --build -d
+
+# NVIDIA GPU mode
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build -d
+
+# AMD ROCm mode
+docker compose -f docker-compose.yml -f docker-compose.amd.yml up --build -d
+```
+
 ### 4. Verify Services
 
 Check that all services are healthy:
@@ -77,7 +90,7 @@ Test the health endpoints:
 ```bash
 curl http://localhost:3002/health  # Scene Analyzer
 curl http://localhost:3001/health  # NSFW Detector
-curl http://localhost:3004/health  # Content Classifier
+curl http://localhost:3003/health  # Violence Detector
 ```
 
 ## Path Configuration Details
@@ -186,7 +199,7 @@ docker-compose up -d
 ```bash
 docker-compose logs scene-analyzer
 docker-compose logs nsfw-detector
-docker-compose logs content-classifier
+docker-compose logs violence-detector
 ```
 
 ### "File not found" errors
@@ -244,7 +257,8 @@ Place custom AI models in the `models/` directory and they'll be mounted to `/ap
 
 - **3001**: NSFW Detector API
 - **3002**: Scene Analyzer API (main entry point for Jellyfin plugin)
-- **3004**: Content Classifier API
+- **3003**: Violence Detector API
+- **3004**: Content Classifier API (legacy/optional profile)
 
 Configure Jellyfin plugin to connect to: `http://host.docker.internal:3002`
 

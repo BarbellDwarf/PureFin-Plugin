@@ -95,6 +95,33 @@ public class SegmentStoreTests
     }
 
     [Fact]
+    public async Task GetSegmentsOverlappingRange_ReturnsMatchingSegments()
+    {
+        var store = CreateStore();
+        const string mediaId = "test-media-overlap";
+        var data = new SegmentData
+        {
+            MediaId = mediaId,
+            Segments = new List<Segment>
+            {
+                new Segment { Start = 10.0, End = 12.0, Action = "skip" },
+                new Segment { Start = 15.0, End = 16.0, Action = "skip" },
+                new Segment { Start = 20.0, End = 25.0, Action = "skip" }
+            }
+        };
+
+        try { await store.Put(mediaId, data); }
+        catch (Exception) { /* file I/O not required for in-memory test */ }
+
+        var result = store.GetSegmentsOverlappingRange(mediaId, 11.5, 20.5);
+
+        Assert.Equal(3, result.Count);
+        Assert.Equal(10.0, result[0].Start);
+        Assert.Equal(15.0, result[1].Start);
+        Assert.Equal(20.0, result[2].Start);
+    }
+
+    [Fact]
     public async Task GetNextBoundary_AfterCurrentPosition_ReturnsNextStart()
     {
         var store = CreateStore();
