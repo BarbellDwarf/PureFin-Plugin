@@ -70,13 +70,23 @@ function Wait-ServiceReady {
 
 function Set-EnvProfile {
     param([string]$EnvFile, [string]$Profile)
-    $content = Get-Content $EnvFile -Raw
-    if ($content -match "(?m)^VIOLENCE_MODEL_PROFILE=.*$") {
-        $content = $content -replace "(?m)^VIOLENCE_MODEL_PROFILE=.*$", "VIOLENCE_MODEL_PROFILE=$Profile"
-    } else {
-        $content += "`nVIOLENCE_MODEL_PROFILE=$Profile`n"
+    # Retry loop handles transient Windows file locks (Docker Desktop)
+    for ($i = 0; $i -lt 10; $i++) {
+        try {
+            $content = [System.IO.File]::ReadAllText($EnvFile)
+            if ($content -match "(?m)^VIOLENCE_MODEL_PROFILE=") {
+                $content = $content -replace "(?m)^VIOLENCE_MODEL_PROFILE=.*$", "VIOLENCE_MODEL_PROFILE=$Profile"
+            } else {
+                # Variable not present yet — append it
+                $content = $content.TrimEnd() + "`n`nVIOLENCE_MODEL_PROFILE=$Profile`n"
+            }
+            [System.IO.File]::WriteAllText($EnvFile, $content)
+            return
+        } catch {
+            Start-Sleep -Milliseconds 300
+        }
     }
-    Set-Content $EnvFile $content -NoNewline
+    throw "Could not write VIOLENCE_MODEL_PROFILE to .env after 10 attempts"
 }
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -176,45 +186,53 @@ $results  = @{}
 foreach ($profile in $profiles) {
     Write-Step "Testing profile: $profile"
 
-    # Update .env and restart violence-detector only
+    # Update .env and force-recreate violence-detector (--no-deps avoids restarting scene-analyzer)
     Set-EnvProfile $EnvFile $profile
-    Write-Host "  Restarting violence-detector with profile=$profile..."
-    & docker compose -f $ComposeBase -f $ComposeAmd stop violence-detector | Out-Null
-    & docker compose -f $ComposeBase -f $ComposeAmd up -d violence-detector
-    Start-Sleep -Seconds 5  # brief wait before polling
+    $envCheck = (Get-Content $EnvFile | Select-String "VIOLENCE_MODEL_PROFILE").Line
+    Write-Host "  .env: $envCheck"
+    & docker compose -f $ComposeBase -f $ComposeAmd up -d --force-recreate --no-deps violence-detector | Out-Null
+    Start-Sleep -Seconds 4  # brief wait before polling
 
     # Wait for violence-detector to come back
     $null = Wait-ServiceReady "violence-detector ($profile)" $ViolenceHealth 180
 
-    # Check /ready endpoint on violence-detector
-    try {
-        $rdyResp = Invoke-Get $ViolenceReady 15
-        $activeProfile = if ($rdyResp.model_profile) { $rdyResp.model_profile } else { "(unknown)" }
-        $deviceUsed    = if ($rdyResp.device)        { $rdyResp.device }        else { "(unknown)" }
-        Write-OK "violence-detector ready — profile=$activeProfile device=$deviceUsed"
-        if ($activeProfile -ne $profile) {
-            Write-WARN "Expected profile '$profile' but service reports '$activeProfile'"
-        }
-    } catch {
-        Write-WARN "Could not read /ready response: $_"
-        $activeProfile = "error"; $deviceUsed = "error"
+    # Check /health endpoint — wait until the expected profile is active
+    $activeProfile = "unknown"; $deviceUsed = "unknown"
+    $deadline2 = (Get-Date).AddSeconds(90)
+    while ((Get-Date) -lt $deadline2) {
+        try {
+            $hResp = Invoke-Get $ViolenceHealth 5
+            if ($hResp.model_profile -eq $profile) {
+                $activeProfile = $hResp.model_profile
+                $deviceUsed    = $hResp.device
+                break
+            }
+            Write-Host "  . waiting for profile=$profile (current=$($hResp.model_profile))"
+        } catch {}
+        Start-Sleep -Seconds 4
+    }
+
+    if ($activeProfile -eq $profile) {
+        Write-OK "violence-detector active profile=$activeProfile device=$deviceUsed model_id=$($hResp.model_id)"
+    } else {
+        Write-WARN "Expected profile '$profile' but service reports '$activeProfile'"
     }
 
     # Check /runtime on scene-analyzer (picks up downstream violence-detector info)
     try {
         $runtime = Invoke-Get $AnalyzerRuntime 15
-        $vModel = $null
-        if ($runtime.downstream_services) {
-            $vSvc = $runtime.downstream_services | Where-Object { $_.name -eq "violence-detector" }
-            if ($vSvc) { $vModel = $vSvc.model_id }
+        # New /runtime structure: top-level fields violence_model_id, violence_model_profile
+        $vModel   = if ($runtime.violence_model_id)      { $runtime.violence_model_id }      else { $null }
+        $vProfile = if ($runtime.violence_model_profile) { $runtime.violence_model_profile } else { $null }
+        # Fallback to nested downstream structure
+        if (-not $vModel -and $runtime.downstream) {
+            $vModel   = $runtime.downstream.violence_detector.model_id
+            $vProfile = $runtime.downstream.violence_detector.model_profile
         }
-        if (-not $vModel -and $runtime.model_versions) {
-            $vModel = $runtime.model_versions.violence
-        }
-        Write-OK "scene-analyzer /runtime: violence model=$vModel"
+        Write-OK "scene-analyzer /runtime: violence profile=$vProfile model=$vModel"
     } catch {
         Write-WARN "/runtime call failed: $_"
-        $vModel = "error"
+        $vModel = "error"; $vProfile = "error"
     }
 
     # Optional: submit a test video
@@ -239,6 +257,7 @@ foreach ($profile in $profiles) {
         active_profile = $activeProfile
         device         = $deviceUsed
         violence_model = $vModel
+        runtime_profile = $vProfile
     }
 }
 
@@ -248,9 +267,10 @@ foreach ($profile in $profiles) {
 Write-Step "Summary"
 foreach ($p in $profiles) {
     $r = $results[$p]
-    $ok = if ($r.active_profile -eq $p) { "[OK]" } else { "[WARN]" }
+    $ok = if ($r.active_profile -eq $p) { "[OK]  " } else { "[WARN]" }
     $color = if ($r.active_profile -eq $p) { "Green" } else { "Yellow" }
-    Write-Host ("  {0,-8} profile={1,-10} device={2,-6} model={3}" -f $ok, $r.active_profile, $r.device, $r.violence_model) -ForegroundColor $color
+    Write-Host ("  {0} profile={1,-10} device={2,-6} runtime={3,-10} model={4}" -f `
+        $ok, $r.active_profile, $r.device, $r.runtime_profile, $r.violence_model) -ForegroundColor $color
 }
 
 Write-Host "`nE2E test complete." -ForegroundColor Magenta
