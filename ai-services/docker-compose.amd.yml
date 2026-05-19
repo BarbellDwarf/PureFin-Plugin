@@ -29,7 +29,25 @@ services:
     group_add:
       - video
 
+  violence-detector:
+    build:
+      context: ./services/violence-detector
+      args:
+        BUILD_WITH_ROCM: "1"
+    environment:
+      - USE_GPU=1
+      - USE_AMF=1
+      # Same GFX overrides as above — uncomment if needed
+      #- HSA_OVERRIDE_GFX_VERSION=10.3.0
+      #- ROC_ENABLE_PRE_VEGA=1
+    devices:
+      - /dev/kfd
+      - /dev/dri
+    group_add:
+      - video
+
   content-classifier:
+    profiles: ["legacy"]
     environment:
       - USE_GPU=1
       - USE_AMF=1

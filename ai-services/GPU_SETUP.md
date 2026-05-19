@@ -60,13 +60,13 @@ Use the GPU-specific Docker Compose file:
 ```powershell
 # Start services with GPU acceleration
 cd ai-services
-docker-compose -f docker-compose.gpu.yml up -d
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build -d
 
 # View logs to confirm GPU usage
-docker-compose -f docker-compose.gpu.yml logs -f
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml logs -f
 
 # Stop services
-docker-compose -f docker-compose.gpu.yml down
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml down
 ```
 
 ### Fallback to CPU (No GPU Available)
@@ -112,7 +112,7 @@ services:
     environment:
       - CUDA_VISIBLE_DEVICES=0    # Use GPU 0
   
-  content-classifier:
+  violence-detector:
     environment:
       - CUDA_VISIBLE_DEVICES=1    # Use GPU 1
 ```
@@ -156,7 +156,7 @@ If you get CUDA out of memory errors:
 
 1. Check Docker logs:
    ```powershell
-   docker-compose -f docker-compose.gpu.yml logs nsfw-detector
+   docker compose -f docker-compose.yml -f docker-compose.gpu.yml logs nsfw-detector
    ```
 
 2. Verify CUDA version compatibility with your GPU driver
@@ -170,10 +170,10 @@ Some AI models require downloading before first use. GPU-accelerated models may 
 ```powershell
 # Download models (example)
 cd ai-services
-python scripts/download_models.py --gpu
+python scripts/bootstrap_models.py --models-dir ./models
 
 # Or use the model downloader service
-docker-compose -f docker-compose.gpu.yml run --rm nsfw-detector python download_models.py
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml run --rm violence-detector python -c "from transformers import AutoImageProcessor, AutoModelForImageClassification; AutoImageProcessor.from_pretrained('jaranohaal/vit-base-violence-detection'); AutoModelForImageClassification.from_pretrained('jaranohaal/vit-base-violence-detection'); print('violence model ready')"
 ```
 
 ## Monitoring GPU Usage
@@ -184,12 +184,12 @@ docker-compose -f docker-compose.gpu.yml run --rm nsfw-detector python download_
 watch -n 1 nvidia-smi
 
 # Or use container-specific monitoring
-docker exec -it nsfw-detector-gpu nvidia-smi
+docker exec -it violence-detector nvidia-smi
 ```
 
 ### Check Service Logs for GPU Confirmation
 ```bash
-docker-compose -f docker-compose.gpu.yml logs | grep -i "gpu\|cuda"
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml logs | grep -i "gpu\|cuda"
 ```
 
 You should see messages like:
@@ -250,13 +250,25 @@ AMD GPUs on Windows use ROCm via WSL2 device passthrough (`/dev/kfd` and `/dev/d
    ```
    You should see `renderD128` (or similar). This is the render node the ROCm runtime uses.
 
-4. **Run services with AMD GPU acceleration**:
+4. **Run services with AMD GPU acceleration** (installs ROCm 6.2 PyTorch automatically on first build):
    ```powershell
    cd ai-services
-   docker compose -f docker-compose.yml -f docker-compose.amd.yml up --build
+   docker compose -f docker-compose.yml -f docker-compose.amd.yml up --build -d
+   ```
+   The AMD overlay passes `BUILD_WITH_ROCM=1` to the `violence-detector` build stage, which
+   replaces the default CPU PyTorch wheels with ROCm 6.2 wheels. First build takes longer due
+   to the ROCm wheel download (~1 GB).
+
+5. **Run the E2E profile test** (optional, validates all three model profiles on your GPU):
+   ```powershell
+   # From the repository root:
+   .\test-scripts\Test-E2E-AMD.ps1
+
+   # Or supply a short test video for live analysis:
+   .\test-scripts\Test-E2E-AMD.ps1 -TestVideoPath "D:\Media\Movies\SomeShortClip.mp4"
    ```
 
-5. **If you get "device not found" errors** inside the container, your AMD driver version does not support ROCm WSL2 passthrough. Fall back to CPU mode:
+6. **If you get "device not found" errors** inside the container, your AMD driver version does not support ROCm WSL2 passthrough. Fall back to CPU mode:
    ```powershell
    docker compose up --build
    ```
