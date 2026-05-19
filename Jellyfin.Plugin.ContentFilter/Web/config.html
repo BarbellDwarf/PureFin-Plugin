@@ -58,22 +58,22 @@
                         
                         <div class="inputContainer">
                             <label class="inputLabel" for="immodestyThreshold">
-                                Immodesty Threshold: <span id="immodestyThresholdValue">0.20</span>
+                                Immodesty Threshold: <span id="immodestyThresholdValue">0.10</span>
                             </label>
                             <input is="emby-input" type="range" id="immodestyThreshold" name="immodestyThreshold" 
-                                   min="0.1" max="0.9" step="0.05" value="0.20" 
+                                   min="0.01" max="0.9" step="0.01" value="0.10" 
                                    oninput="document.getElementById('immodestyThresholdValue').textContent = this.value" />
-                            <div class="fieldDescription">Current: 0.20 (moderate). Lower = more sensitive, Higher = less sensitive</div>
+                            <div class="fieldDescription">Revealing clothing and partial-skin scenes typically score 0.05–0.40. Recommended: 0.05 (strict) to 0.10 (moderate). Lower = more sensitive.</div>
                         </div>
                         
                         <div class="inputContainer">
                             <label class="inputLabel" for="violenceThreshold">
-                                Violence Threshold: <span id="violenceThresholdValue">0.45</span>
+                                Violence Threshold: <span id="violenceThresholdValue">0.65</span>
                             </label>
                             <input is="emby-input" type="range" id="violenceThreshold" name="violenceThreshold" 
-                                   min="0.1" max="0.9" step="0.05" value="0.45" 
+                                   min="0.1" max="0.95" step="0.05" value="0.65" 
                                    oninput="document.getElementById('violenceThresholdValue').textContent = this.value" />
-                            <div class="fieldDescription">Current: 0.45 (moderate). Lower = more sensitive, Higher = less sensitive</div>
+                            <div class="fieldDescription">⚠️ The violence classifier outputs ~0.50 for all action/war movie content. Values below 0.65 will flag virtually every scene in action films. Recommended: 0.65–0.75 to catch only explicitly violent content.</div>
                         </div>
                         
                         <div class="inputContainer">
@@ -171,6 +171,16 @@
                                    min="10" max="180" step="10" value="30" 
                                    oninput="document.getElementById('samplingIntervalValue').textContent = this.value" />
                             <div class="fieldDescription">Debug only — fixed-size chunks, not real scene boundaries. Not recommended for production use.</div>
+                        </div>
+
+                        <div class="inputContainer">
+                            <label class="inputLabel" for="sceneSampleCount">
+                                Frame Samples per Scene: <span id="sceneSampleCountValue">9</span>
+                            </label>
+                            <input is="emby-input" type="range" id="sceneSampleCount" name="sceneSampleCount" 
+                                   min="3" max="15" step="1" value="9" 
+                                   oninput="document.getElementById('sceneSampleCountValue').textContent = this.value" />
+                            <div class="fieldDescription">Higher values catch short/immediate content more reliably, but increase analysis time.</div>
                         </div>
 
                         <h3 style="margin-top: 20px;">Analysis Queue Controls (Admin)</h3>
@@ -338,8 +348,8 @@
                     
                     // Set threshold values and update display
                     var nudityThreshold = config.NudityThreshold || 0.35;
-                    var immodestyThreshold = config.ImmodestyThreshold || 0.20;
-                    var violenceThreshold = config.ViolenceThreshold || 0.45;
+                    var immodestyThreshold = config.ImmodestyThreshold || 0.10;
+                    var violenceThreshold = config.ViolenceThreshold || 0.65;
                     var profanityThreshold = config.ProfanityThreshold || 0.30;
                     var nudityConfirmMin = (config.NudityConfirmationMinImmodesty !== undefined) ? config.NudityConfirmationMinImmodesty : 0.05;
                     
@@ -362,12 +372,15 @@
                     var sceneMethod = config.SceneDetectionMethod || 'transnetv2';
                     var ffmpegThreshold = config.FfmpegSceneThreshold || 0.3;
                     var samplingInterval = config.SamplingIntervalSeconds || 30;
+                    var sceneSampleCount = config.SceneSampleCount || 9;
                     
                     document.getElementById('sceneDetectionMethod').value = sceneMethod;
                     document.getElementById('ffmpegSceneThreshold').value = ffmpegThreshold;
                     document.getElementById('ffmpegSceneThresholdValue').textContent = ffmpegThreshold;
                     document.getElementById('samplingIntervalSeconds').value = samplingInterval;
                     document.getElementById('samplingIntervalValue').textContent = samplingInterval;
+                    document.getElementById('sceneSampleCount').value = sceneSampleCount;
+                    document.getElementById('sceneSampleCountValue').textContent = sceneSampleCount;
                     
                     updateSceneMethodFields();
                     Dashboard.hideLoadingMsg();
@@ -415,6 +428,7 @@
                     config.SceneDetectionMethod = document.getElementById('sceneDetectionMethod').value;
                     config.FfmpegSceneThreshold = parseFloat(document.getElementById('ffmpegSceneThreshold').value);
                     config.SamplingIntervalSeconds = parseInt(document.getElementById('samplingIntervalSeconds').value);
+                    config.SceneSampleCount = parseInt(document.getElementById('sceneSampleCount').value);
 
                     ApiClient.updatePluginConfiguration(PureFinConfig.pluginUniqueId, config).then(function (result) {
                         Dashboard.processPluginConfigurationUpdateResult(result);

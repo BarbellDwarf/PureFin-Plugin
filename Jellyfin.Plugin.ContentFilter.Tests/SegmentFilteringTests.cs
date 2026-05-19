@@ -15,9 +15,9 @@ public class SegmentFilteringTests
         EnableNudity = true,
         EnableImmodesty = true,
         EnableViolence = true,
-        NudityThreshold = 0.30,
-        ImmodestyThreshold = 0.12,
-        ViolenceThreshold = 0.40,
+        NudityThreshold = 0.25,
+        ImmodestyThreshold = 0.05,
+        ViolenceThreshold = 0.65,
         NudityConfirmationMinImmodesty = nudityConfirmMin
     };
 

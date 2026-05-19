@@ -6,9 +6,9 @@ namespace Jellyfin.Plugin.ContentFilter.Tests;
 public class SensitivityThresholdsTests
 {
     [Theory]
-    [InlineData("permissive", 0.75, 0.45, 0.75)]
-    [InlineData("moderate",   0.55, 0.22, 0.60)]
-    [InlineData("strict",     0.30, 0.12, 0.40)]
+    [InlineData("permissive", 0.75, 0.30, 0.80)]
+    [InlineData("moderate",   0.50, 0.10, 0.70)]
+    [InlineData("strict",     0.25, 0.05, 0.65)]
     public void GetThresholds_ReturnsExpectedValues(
         string sensitivity, double expectedNudity, double expectedImmodesty, double expectedViolence)
     {
@@ -24,9 +24,9 @@ public class SensitivityThresholdsTests
     {
         var (nudityThreshold, immodestyThreshold, violenceThreshold) = SensitivityThresholds.GetThresholds("unknown");
 
-        Assert.Equal(0.55, nudityThreshold,    precision: 2);
-        Assert.Equal(0.22, immodestyThreshold, precision: 2);
-        Assert.Equal(0.60, violenceThreshold,  precision: 2);
+        Assert.Equal(0.50, nudityThreshold,    precision: 2);
+        Assert.Equal(0.10, immodestyThreshold, precision: 2);
+        Assert.Equal(0.70, violenceThreshold,  precision: 2);
     }
 
     [Fact]
@@ -34,9 +34,9 @@ public class SensitivityThresholdsTests
     {
         var (nudityThreshold, immodestyThreshold, violenceThreshold) = SensitivityThresholds.GetThresholds(null);
 
-        Assert.Equal(0.55, nudityThreshold,    precision: 2);
-        Assert.Equal(0.22, immodestyThreshold, precision: 2);
-        Assert.Equal(0.60, violenceThreshold,  precision: 2);
+        Assert.Equal(0.50, nudityThreshold,    precision: 2);
+        Assert.Equal(0.10, immodestyThreshold, precision: 2);
+        Assert.Equal(0.70, violenceThreshold,  precision: 2);
     }
 
     [Fact]
@@ -73,9 +73,9 @@ public class SensitivityThresholdsTests
 
         var effective = config.WithSensitivityThresholds();
 
-        Assert.Equal(0.30, effective.NudityThreshold,    precision: 2);
-        Assert.Equal(0.12, effective.ImmodestyThreshold, precision: 2);
-        Assert.Equal(0.40, effective.ViolenceThreshold,  precision: 2);
+        Assert.Equal(0.25, effective.NudityThreshold,    precision: 2);
+        Assert.Equal(0.05, effective.ImmodestyThreshold, precision: 2);
+        Assert.Equal(0.65, effective.ViolenceThreshold,  precision: 2);
     }
 
     [Fact]

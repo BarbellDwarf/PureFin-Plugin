@@ -36,14 +36,19 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>
     /// Gets or sets the confidence threshold for immodesty detection (0.0 to 1.0).
     /// Higher values = more strict filtering, only high-confidence detections.
+    /// Revealing-clothing and partial-skin scenes typically score 0.05–0.40;
+    /// lower this threshold to catch more borderline content.
     /// </summary>
-    public double ImmodestyThreshold { get; set; } = 0.20;
+    public double ImmodestyThreshold { get; set; } = 0.10;
 
     /// <summary>
     /// Gets or sets the confidence threshold for violence detection (0.0 to 1.0).
     /// Higher values = more strict filtering, only high-confidence detections.
+    /// NOTE: The violence classifier outputs a baseline of ~0.50 for all action/war
+    /// movie content. Thresholds below 0.65 will false-positive on virtually every
+    /// scene in action films. Set to 0.65+ to catch only truly explicit violence.
     /// </summary>
-    public double ViolenceThreshold { get; set; } = 0.45;
+    public double ViolenceThreshold { get; set; } = 0.65;
 
     /// <summary>
     /// Gets or sets the confidence threshold for profanity detection (0.0 to 1.0).
@@ -117,6 +122,12 @@ public class PluginConfiguration : BasePluginConfiguration
     public int SamplingIntervalSeconds { get; set; } = 30;
 
     /// <summary>
+    /// Gets or sets the number of frames sampled per detected scene.
+    /// Higher values increase catch-rate for short content but increase analysis time.
+    /// </summary>
+    public int SceneSampleCount { get; set; } = 9;
+
+    /// <summary>
     /// Returns a copy of this configuration with NSFW and violence thresholds derived from
     /// the <see cref="Sensitivity"/> preset, overriding the individual slider values.
     /// </summary>
@@ -141,6 +152,7 @@ public class PluginConfiguration : BasePluginConfiguration
             SceneDetectionMethod = SceneDetectionMethod,
             FfmpegSceneThreshold = FfmpegSceneThreshold,
             SamplingIntervalSeconds = SamplingIntervalSeconds,
+            SceneSampleCount = SceneSampleCount,
             JellyfinMediaPath = JellyfinMediaPath,
             AiServiceMediaPath = AiServiceMediaPath,
             NudityConfirmationMinImmodesty = NudityConfirmationMinImmodesty
@@ -159,16 +171,19 @@ public static class SensitivityThresholds
     /// <summary>
     /// Returns (NudityThreshold, ImmodestyThreshold, ViolenceThreshold) for the given sensitivity preset.
     /// <list type="bullet">
-    ///   <item><term>strict</term><description>0.30 / 0.12 / 0.40 — catches most content</description></item>
-    ///   <item><term>moderate</term><description>0.55 / 0.22 / 0.60 — balanced (default)</description></item>
-    ///   <item><term>permissive</term><description>0.75 / 0.45 / 0.75 — only very-high-confidence content</description></item>
+    ///   <item><term>strict</term><description>0.25 / 0.05 / 0.65 — catches most content including borderline reveals</description></item>
+    ///   <item><term>moderate</term><description>0.50 / 0.10 / 0.70 — balanced (default)</description></item>
+    ///   <item><term>permissive</term><description>0.75 / 0.30 / 0.80 — only very-high-confidence content</description></item>
     /// </list>
+    /// Violence thresholds are set high (0.65+) because the violence classifier outputs
+    /// a noise floor of ~0.50 for all action/war content; lower values cause false positives
+    /// on virtually every scene in action films.
     /// </summary>
     public static (double NudityThreshold, double ImmodestyThreshold, double ViolenceThreshold) GetThresholds(string? sensitivity) =>
         sensitivity?.ToLowerInvariant() switch
         {
-            "strict" => (0.30, 0.12, 0.40),
-            "permissive" => (0.75, 0.45, 0.75),
-            _ => (0.55, 0.22, 0.60) // moderate
+            "strict" => (0.25, 0.05, 0.65),
+            "permissive" => (0.75, 0.30, 0.80),
+            _ => (0.50, 0.10, 0.70) // moderate
         };
 }
