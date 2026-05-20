@@ -44,11 +44,13 @@ services:
       <<: *nvidia-env
     <<: *nvidia-runtime
 
-  # nsfw-detector: TF GPU wheels for Python 3.11 are not available on CUDA 12.4.
-  # Runs CPU-only in NVIDIA mode until base image is updated to Python 3.12.
   nsfw-detector:
+    build:
+      context: ./services/nsfw-detector
+      dockerfile: Dockerfile.nvidia
     environment:
-      USE_GPU: "0"
+      <<: *nvidia-env
+    <<: *nvidia-runtime
 
   content-classifier:
     profiles: ["legacy"]
@@ -59,3 +61,4 @@ services:
     environment:
       <<: *nvidia-env
     <<: *nvidia-runtime
+

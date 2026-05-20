@@ -1,16 +1,19 @@
-"""NSFW Detection Service - REST API for content analysis."""
+"""NSFW Detection Service - REST API using a HuggingFace image classifier."""
 
-import os
-import logging
 import gc
+import io
+import logging
+import os
 import threading
 import time
 from datetime import datetime
-from flask import Flask, request, jsonify
+
+from flask import Flask, jsonify, request
+from PIL import Image, ImageOps
 from prometheus_client import Counter, Histogram, generate_latest
-import numpy as np
-from PIL import Image
-import io
+
+import torch
+from transformers import AutoImageProcessor, AutoModelForImageClassification
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -19,144 +22,118 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 # Prometheus metrics
-REQUEST_COUNT = Counter('nsfw_requests_total', 'Total NSFW detection requests')
-REQUEST_DURATION = Histogram('nsfw_request_duration_seconds', 'NSFW detection request duration')
-ERROR_COUNT = Counter('nsfw_errors_total', 'Total NSFW detection errors')
+REQUEST_COUNT = Counter("nsfw_requests_total", "Total NSFW detection requests")
+REQUEST_DURATION = Histogram("nsfw_request_duration_seconds", "NSFW detection request duration")
+ERROR_COUNT = Counter("nsfw_errors_total", "Total NSFW detection errors")
 
-# Model placeholder - in production, load actual NSFW model
-MODEL_PATH = os.getenv('MODEL_PATH', '/app/models')
-USE_GPU = os.getenv('USE_GPU', '0') == '1'
-MODEL_IDLE_UNLOAD_SECONDS = int(os.getenv('MODEL_IDLE_UNLOAD_SECONDS', '900'))
-MODEL_IDLE_CHECK_SECONDS = int(os.getenv('MODEL_IDLE_CHECK_SECONDS', '30'))
+# Configuration
+MODEL_PATH = os.getenv("MODEL_PATH", "/app/models")
+NSFW_MODEL_ID = os.getenv("NSFW_MODEL_ID", "AdamCodd/vit-base-nsfw-detector").strip()
+NSFW_MODEL_REVISION = os.getenv("NSFW_MODEL_REVISION", "").strip() or None
+NSFW_MODEL_SUBDIR = os.getenv("NSFW_MODEL_SUBDIR", "nsfw").strip()
+USE_GPU = os.getenv("USE_GPU", "0") == "1"
+MODEL_IDLE_UNLOAD_SECONDS = int(os.getenv("MODEL_IDLE_UNLOAD_SECONDS", "900"))
+MODEL_IDLE_CHECK_SECONDS = int(os.getenv("MODEL_IDLE_CHECK_SECONDS", "30"))
+
+# Runtime state
 model_loaded = False
-nsfw_model = None
 _models_ready = False
+image_processor = None
+nsfw_model = None
+label_map = {}
 model_lock = threading.Lock()
 last_model_use_monotonic = time.monotonic()
 
-# GPU detection
-gpu_available = False
-try:
-    # Try to import TensorFlow and check for GPU
-    import tensorflow as tf
-    gpus = tf.config.list_physical_devices('GPU')
-    if gpus and USE_GPU:
-        gpu_available = True
-        logger.info(f"GPU detected: {len(gpus)} GPU(s) available")
-        for gpu in gpus:
-            logger.info(f"  - {gpu.name}")
-        # Configure GPU memory growth to avoid OOM
-        for gpu in gpus:
-            tf.config.experimental.set_memory_growth(gpu, True)
-    else:
-        logger.info("Using CPU for inference")
-except Exception as e:
-    logger.info(f"GPU not available, using CPU: {e}")
-
-# NSFW categories
-CATEGORIES = ['drawings', 'hentai', 'neutral', 'porn', 'sexy']
+# Device selection — ROCm exposes itself as "cuda" to PyTorch
+device = torch.device("cuda" if (USE_GPU and torch.cuda.is_available()) else "cpu")
+gpu_available = USE_GPU and torch.cuda.is_available()
+logger.info("NSFW detector device: %s (gpu_available=%s)", device, gpu_available)
 
 
-def load_model():
-    """Load NSFW detection model."""
-    global model_loaded, nsfw_model, _models_ready, last_model_use_monotonic
-    with model_lock:
-        if model_loaded and nsfw_model is not None:
-            last_model_use_monotonic = time.monotonic()
-            return True
-
-        try:
-            # Try loading H5 model first (our custom model)
-            h5_path = os.path.join(MODEL_PATH, 'nsfw', 'nsfw_model.h5')
-            savedmodel_path = os.path.join(MODEL_PATH, 'nsfw', 'mobilenet_v2_140_224')
-
-            import tensorflow as tf
-
-            if os.path.exists(h5_path):
-                logger.info("Loading NSFW H5 model from %s", h5_path)
-                try:
-                    nsfw_model = tf.keras.models.load_model(h5_path)
-                    logger.info("Successfully loaded NSFW H5 model")
-                    model_loaded = True
-                    _models_ready = True
-
-                    # Test prediction to ensure model works
-                    test_input = tf.random.normal((1, 224, 224, 3))
-                    _ = nsfw_model.predict(test_input, verbose=0)
-                    logger.info("Model test prediction successful")
-                    last_model_use_monotonic = time.monotonic()
-                    return True
-
-                except Exception as h5_error:
-                    logger.error("H5 model loading failed: %s", h5_error)
-
-            elif os.path.exists(savedmodel_path):
-                logger.info("Loading NSFW SavedModel from %s", savedmodel_path)
-                try:
-                    nsfw_model = tf.keras.models.load_model(savedmodel_path)
-                    logger.info("Successfully loaded NSFW TensorFlow SavedModel")
-                    model_loaded = True
-                    _models_ready = True
-
-                    # Test prediction to ensure model works
-                    test_input = tf.random.normal((1, 224, 224, 3))
-                    _ = nsfw_model.predict(test_input, verbose=0)
-                    logger.info("Model test prediction successful")
-                    last_model_use_monotonic = time.monotonic()
-                    return True
-
-                except Exception as tf_error:
-                    logger.error("SavedModel loading failed: %s", tf_error)
-            else:
-                logger.warning("No NSFW model found at %s or %s", h5_path, savedmodel_path)
-
-            model_loaded = False
-            _models_ready = False
-            nsfw_model = None
-            return False
-
-        except Exception as e:
-            logger.error("Error loading model: %s", e)
-            model_loaded = False
-            _models_ready = False
-            nsfw_model = None
-            return False
+def _local_model_dir() -> str:
+    return os.path.join(MODEL_PATH, NSFW_MODEL_SUBDIR)
 
 
-def _has_model_assets():
-    """Return True when model files exist and lazy-load can succeed."""
-    h5_path = os.path.join(MODEL_PATH, 'nsfw', 'nsfw_model.h5')
-    savedmodel_path = os.path.join(MODEL_PATH, 'nsfw', 'mobilenet_v2_140_224')
-    return os.path.exists(h5_path) or os.path.exists(savedmodel_path)
+def _has_model_assets() -> bool:
+    d = _local_model_dir()
+    return os.path.isdir(d) and any(
+        f.endswith((".safetensors", ".bin", ".pt"))
+        for f in os.listdir(d)
+    )
 
 
 def _touch_model_use():
-    """Record model usage for idle-unload tracking."""
     global last_model_use_monotonic
     last_model_use_monotonic = time.monotonic()
 
 
-def unload_model(reason="idle timeout"):
-    """Unload model from memory."""
-    global model_loaded, nsfw_model, _models_ready
+def load_model() -> bool:
+    global model_loaded, _models_ready, image_processor, nsfw_model, label_map
+
+    with model_lock:
+        if model_loaded and nsfw_model is not None:
+            _touch_model_use()
+            return True
+
+        local_dir = _local_model_dir()
+        has_local = _has_model_assets()
+        source = local_dir if has_local else NSFW_MODEL_ID
+        local_files_only = has_local
+
+        logger.info("Loading NSFW model from: %s (device=%s)", source, device)
+        try:
+            proc = AutoImageProcessor.from_pretrained(
+                source, revision=NSFW_MODEL_REVISION if not has_local else None,
+                local_files_only=local_files_only
+            )
+            mdl = AutoModelForImageClassification.from_pretrained(
+                source, revision=NSFW_MODEL_REVISION if not has_local else None,
+                local_files_only=local_files_only
+            )
+            mdl.to(device)
+            mdl.eval()
+
+            lmap = {}
+            if hasattr(mdl.config, "id2label"):
+                lmap = {v.lower(): k for k, v in mdl.config.id2label.items()}
+            logger.info("NSFW model labels: %s", list(lmap.keys()))
+
+            image_processor = proc
+            nsfw_model = mdl
+            label_map = lmap
+            model_loaded = True
+            _models_ready = True
+            _touch_model_use()
+            logger.info("NSFW model loaded successfully on %s", device)
+            return True
+
+        except Exception as e:
+            logger.error("NSFW model load failed: %s", e)
+            image_processor = None
+            nsfw_model = None
+            model_loaded = False
+            _models_ready = False
+            return False
+
+
+def unload_model(reason: str = "idle timeout"):
+    global model_loaded, _models_ready, image_processor, nsfw_model
+
     with model_lock:
         if nsfw_model is None and not model_loaded:
             return False
         nsfw_model = None
+        image_processor = None
         model_loaded = False
         _models_ready = False
-        try:
-            import tensorflow as tf
-            tf.keras.backend.clear_session()
-        except Exception:
-            pass
         gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
         logger.info("NSFW model unloaded (%s)", reason)
         return True
 
 
-def ensure_model_loaded():
-    """Load model on demand when a request arrives."""
+def ensure_model_loaded() -> bool:
     if model_loaded and nsfw_model is not None:
         _touch_model_use()
         return True
@@ -164,154 +141,139 @@ def ensure_model_loaded():
 
 
 def _idle_unload_worker():
-    """Background worker that unloads model after inactivity."""
     if MODEL_IDLE_UNLOAD_SECONDS <= 0:
         logger.info("Idle model unload disabled (MODEL_IDLE_UNLOAD_SECONDS <= 0)")
         return
-
     while True:
         time.sleep(max(5, MODEL_IDLE_CHECK_SECONDS))
         if not model_loaded:
             continue
-        idle_seconds = time.monotonic() - last_model_use_monotonic
-        if idle_seconds >= MODEL_IDLE_UNLOAD_SECONDS:
-            unload_model(
-                reason=f'idle for {int(idle_seconds)}s (threshold={MODEL_IDLE_UNLOAD_SECONDS}s)')
+        idle = time.monotonic() - last_model_use_monotonic
+        if idle >= MODEL_IDLE_UNLOAD_SECONDS:
+            unload_model(reason=f"idle for {int(idle)}s (threshold={MODEL_IDLE_UNLOAD_SECONDS}s)")
 
 
-def analyze_image(image_data):
-    """Analyze image for NSFW content.
-    
-    Args:
-        image_data: PIL Image object
-        
-    Returns:
-        Dictionary with category scores
-    """
-    global nsfw_model, model_loaded
-    
-    try:
-        # Preprocess image
-        img = image_data.convert('RGB')
-        img = img.resize((224, 224))
-        img_array = np.array(img) / 255.0
-        
-        if not model_loaded or nsfw_model is None:
-            raise RuntimeError("NSFW model is not loaded")
-        
-        # Prepare input for model
-        input_batch = np.expand_dims(img_array, axis=0)
-        
-        # Get model prediction
-        predictions = nsfw_model.predict(input_batch, verbose=0)[0]
-        _touch_model_use()
-        logger.debug(f"Real NSFW model predictions: {predictions}")
-        
-        results = {
-            category: float(score) 
-            for category, score in zip(CATEGORIES, predictions)
-        }
-        
-        return results
-        
-    except Exception as e:
-        logger.error(f"Error analyzing image: {e}")
-        raise
+def _augment(img: Image.Image):
+    """Yield original + mirror for mild TTA."""
+    yield img
+    yield ImageOps.mirror(img)
 
 
-@app.route('/health', methods=['GET'])
+def classify_image(img: Image.Image) -> dict:
+    """Run NSFW classification and return raw label scores."""
+    frames = list(_augment(img))
+    inputs = image_processor(images=frames, return_tensors="pt").to(device)
+
+    with torch.no_grad():
+        logits = nsfw_model(**inputs).logits
+        probs = torch.softmax(logits, dim=-1).mean(dim=0)
+
+    scores = {}
+    for i, p in enumerate(probs.tolist()):
+        label = nsfw_model.config.id2label.get(i, str(i)).lower()
+        scores[label] = p
+
+    _touch_model_use()
+    return scores
+
+
+# ---------------------------------------------------------------------------
+# Routes
+# ---------------------------------------------------------------------------
+
+@app.route("/ping", methods=["GET"])
+def ping():
+    return jsonify({"status": "ok"})
+
+
+@app.route("/health", methods=["GET"])
 def health_check():
-    """Health check endpoint."""
     idle_seconds = int(time.monotonic() - last_model_use_monotonic)
     return jsonify({
-        'status': 'healthy' if model_loaded else 'degraded',
-        'model_loaded': model_loaded,
-        'ready': _models_ready,
-        'lazy_load_available': _has_model_assets(),
-        'model_idle_unload_seconds': MODEL_IDLE_UNLOAD_SECONDS,
-        'seconds_since_model_use': idle_seconds,
-        'gpu_available': gpu_available,
-        'gpu_enabled': USE_GPU,
-        'timestamp': datetime.now().isoformat(),
-        'service': 'nsfw-detector'
+        "status": "healthy" if model_loaded else "degraded",
+        "model_loaded": model_loaded,
+        "ready": _models_ready,
+        "lazy_load_available": _has_model_assets(),
+        "model_id": NSFW_MODEL_ID,
+        "model_idle_unload_seconds": MODEL_IDLE_UNLOAD_SECONDS,
+        "seconds_since_model_use": idle_seconds,
+        "gpu_available": gpu_available,
+        "gpu_enabled": USE_GPU,
+        "device": str(device),
+        "timestamp": datetime.now().isoformat(),
+        "service": "nsfw-detector",
     })
 
 
-@app.route('/ready', methods=['GET'])
+@app.route("/ready", methods=["GET"])
 def ready():
-    """Readiness endpoint — returns 200 only when the model is loaded and inference is possible."""
     if _models_ready:
-        return jsonify({'status': 'ready', 'models_loaded': True})
+        return jsonify({"status": "ready", "models_loaded": True})
     if _has_model_assets():
         return jsonify({
-            'status': 'ready',
-            'models_loaded': False,
-            'lazy_load': True,
-            'reason': 'Model will load on-demand for the next inference request'
+            "status": "ready",
+            "models_loaded": False,
+            "lazy_load": True,
+            "reason": "Model will load on-demand",
         })
     return jsonify({
-        'status': 'degraded',
-        'models_loaded': False,
-        'reason': 'NSFW model not loaded'
+        "status": "degraded",
+        "models_loaded": False,
+        "reason": "NSFW model not loaded",
     }), 503
 
 
-@app.route('/analyze', methods=['POST'])
+@app.route("/analyze", methods=["POST"])
 @REQUEST_DURATION.time()
 def analyze():
-    """Analyze image for NSFW content."""
     REQUEST_COUNT.inc()
-    
     try:
-        # Lazy-load model if needed.
         if not ensure_model_loaded():
             ERROR_COUNT.inc()
-            return jsonify({'error': 'Model not loaded', 'degraded': True}), 503
-        
-        # Get image from request
-        if 'image' not in request.files:
+            return jsonify({"error": "Model not loaded", "degraded": True}), 503
+
+        if "image" not in request.files:
             ERROR_COUNT.inc()
-            return jsonify({'error': 'No image provided'}), 400
-        
-        file = request.files['image']
-        if file.filename == '':
+            return jsonify({"error": "No image provided"}), 400
+
+        file = request.files["image"]
+        if not file.filename:
             ERROR_COUNT.inc()
-            return jsonify({'error': 'Empty filename'}), 400
-        
-        # Load and analyze image
-        image_data = Image.open(io.BytesIO(file.read()))
-        category_results = analyze_image(image_data)
-        
-        # Calculate nudity and immodesty scores from category results
-        # Nudity = porn + hentai
-        # Immodesty = sexy
-        nudity_score = category_results.get('porn', 0) + category_results.get('hentai', 0)
-        immodesty_score = category_results.get('sexy', 0)
-        
+            return jsonify({"error": "Empty filename"}), 400
+
+        img = Image.open(io.BytesIO(file.read())).convert("RGB")
+        scores = classify_image(img)
+
+        # Map multi-class scores to the expected API contract.
+        # AdamCodd model: drawings, hentai, neutral, porn, sexy
+        # Fallback for binary models (normal/nsfw)
+        nudity = scores.get("porn", 0.0) + scores.get("hentai", 0.0)
+        immodesty = scores.get("sexy", 0.0)
+        if nudity == 0.0 and immodesty == 0.0:
+            nsfw_score = scores.get("nsfw", scores.get("unsafe", 0.0))
+            nudity = nsfw_score
+            immodesty = nsfw_score * 0.4
+
         return jsonify({
-            'success': True,
-            'nudity': nudity_score,
-            'immodesty': immodesty_score,
-            'categories': category_results,
-            'timestamp': datetime.now().isoformat()
+            "success": True,
+            "nudity": nudity,
+            "immodesty": immodesty,
+            "categories": scores,
+            "timestamp": datetime.now().isoformat(),
         })
-        
+
     except Exception as e:
         ERROR_COUNT.inc()
-        logger.error(f"Error processing request: {e}")
-        return jsonify({'error': str(e)}), 500
+        logger.error("Error processing request: %s", e)
+        return jsonify({"error": str(e)}), 500
 
 
-@app.route('/metrics', methods=['GET'])
+@app.route("/metrics", methods=["GET"])
 def metrics():
-    """Prometheus metrics endpoint."""
     return generate_latest()
 
 
-if __name__ == '__main__':
-    # Start idle-unload worker (model loading is lazy on first inference request).
-    threading.Thread(target=_idle_unload_worker, daemon=True, name='nsfw-idle-unloader').start()
-    
-    # Run Flask app
-    port = int(os.getenv('PORT', 3000))
-    app.run(host='0.0.0.0', port=port, debug=False)
+if __name__ == "__main__":
+    threading.Thread(target=_idle_unload_worker, daemon=True, name="nsfw-idle-unloader").start()
+    port = int(os.getenv("PORT", 3000))
+    app.run(host="0.0.0.0", port=port, debug=False)

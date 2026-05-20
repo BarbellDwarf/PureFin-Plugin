@@ -286,6 +286,11 @@ def analyze_violence(image_data: Image.Image) -> dict:
     }
 
 
+@app.route("/ping", methods=["GET"])
+def ping():
+    return jsonify({"status": "ok"})
+
+
 @app.route("/health", methods=["GET"])
 def health_check():
     """Health check endpoint."""

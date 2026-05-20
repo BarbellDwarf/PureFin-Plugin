@@ -107,6 +107,17 @@ services:
     ipc: host
     shm_size: 8g
 
-  # nsfw-detector uses TensorFlow. TF-ROCm wheels (tensorflow-rocm) are only available for
-  # Python 3.10 and 3.12. Our container uses Python 3.11, so TF GPU is not available.
-  # nsfw-detector intentionally runs CPU-only in AMD mode until a cp312 base image is adopted.
+  nsfw-detector:
+    build:
+      context: ./services/nsfw-detector
+      dockerfile: Dockerfile.amd
+    environment:
+      <<: *rocm-env
+    devices: *rocm-devices
+    volumes: *rocm-volumes
+    cap_add:
+      - SYS_PTRACE
+    security_opt:
+      - seccomp=unconfined
+    ipc: host
+    shm_size: 8g
