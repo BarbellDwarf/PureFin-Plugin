@@ -1,0 +1,37 @@
+# Intel GPU image for scene-analyzer.
+# Uses VAAPI (via /dev/dri/renderD128) for FFmpeg frame decode.
+# PyTorch runs on CPU unless openvino-pytorch is added as a future enhancement.
+FROM python:3.11-slim
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV CUBLAS_WORKSPACE_CONFIG=:4096:8
+# Use Intel VAAPI (iHD driver for Gen 8+ / Arc; fall back to i965 for older)
+ENV FFMPEG_HWACCEL=vaapi
+ENV VAAPI_DEVICE=/dev/dri/renderD128
+ENV LIBVA_DRIVER_NAME=iHD
+
+WORKDIR /app
+
+# System dependencies: ffmpeg with VAAPI support + Intel media driver
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    libgl1 \
+    libglib2.0-0 \
+    libgomp1 \
+    procps \
+    curl \
+    intel-media-va-driver-non-free \
+    i965-va-driver \
+    vainfo \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN python3 -m pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+RUN mkdir -p /tmp/processing
+
+EXPOSE 3000
+
+CMD ["python3", "app.py"]

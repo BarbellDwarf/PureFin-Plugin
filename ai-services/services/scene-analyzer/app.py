@@ -227,18 +227,48 @@ def detect_ffmpeg_hwaccel():
         return [], False, False, False
 
 def ffmpeg_gpu_args():
-    """Return base FFmpeg args to enable hardware acceleration when available and requested.
+    """Return base FFmpeg args to enable hardware acceleration.
 
-    Priority order: AMF (AMD Windows) → VAAPI (AMD/Intel Linux) → CUDA (NVIDIA).
-    VAAPI is intentionally preferred over CUDA because on AMD Linux the CUDA
-    hwaccel is compiled into FFmpeg but has no driver support (only DXG/VAAPI does).
-    On NVIDIA hosts VAAPI is typically absent so CUDA wins by default.
+    Resolution order:
+      1. FFMPEG_HWACCEL env var override ('none', 'vaapi', 'cuda', 'amf', 'nvdec', 'qsv')
+      2. AMF  — AMD Windows-native (requires USE_AMF=1)
+      3. VAAPI — AMD/Intel Linux (requires /dev/dri; use VAAPI_DEVICE to set path)
+      4. CUDA/NVDEC — NVIDIA only (skipped when VAAPI available to prevent AMD false-positives)
+
+    Set FFMPEG_HWACCEL=none on AMD WSL2 / any setup without /dev/dri, so PyTorch still
+    uses the GPU via ROCm/HIP while FFmpeg falls back to CPU decode.
     """
+    vaapi_device = os.getenv('VAAPI_DEVICE', '/dev/dri/renderD128')
+
+    if FFMPEG_HWACCEL_OVERRIDE:
+        if FFMPEG_HWACCEL_OVERRIDE == 'none':
+            return []
+        if FFMPEG_HWACCEL_OVERRIDE == 'vaapi':
+            if ffmpeg_vaapi_available:
+                return ['-hwaccel', 'vaapi', '-vaapi_device', vaapi_device]
+            logger.warning("FFMPEG_HWACCEL=vaapi requested but VAAPI probe failed — using CPU decode")
+            return []
+        if FFMPEG_HWACCEL_OVERRIDE in ('cuda', 'nvdec'):
+            if ffmpeg_cuda_available:
+                return ['-hwaccel', 'cuda']
+            logger.warning("FFMPEG_HWACCEL=%s requested but CUDA probe failed — using CPU decode", FFMPEG_HWACCEL_OVERRIDE)
+            return []
+        if FFMPEG_HWACCEL_OVERRIDE == 'amf':
+            if ffmpeg_amf_available:
+                return ['-hwaccel', 'amf']
+            logger.warning("FFMPEG_HWACCEL=amf requested but AMF probe failed — using CPU decode")
+            return []
+        if FFMPEG_HWACCEL_OVERRIDE == 'qsv':
+            return ['-hwaccel', 'qsv']
+        logger.warning("Unknown FFMPEG_HWACCEL=%r — using CPU decode", FFMPEG_HWACCEL_OVERRIDE)
+        return []
+
+    # Auto-detection: AMF → VAAPI → CUDA
     if USE_AMF and ffmpeg_amf_available:
         return ['-hwaccel', 'amf']
-    elif USE_GPU and ffmpeg_vaapi_available:
-        return ['-hwaccel', 'vaapi']
-    elif USE_GPU and ffmpeg_cuda_available:
+    if USE_GPU and ffmpeg_vaapi_available:
+        return ['-hwaccel', 'vaapi', '-vaapi_device', vaapi_device]
+    if USE_GPU and ffmpeg_cuda_available:
         return ['-hwaccel', 'cuda']
     return []
 

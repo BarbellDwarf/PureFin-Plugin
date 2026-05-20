@@ -1,202 +1,292 @@
 # GPU Acceleration Setup
 
-This document explains how to use GPU acceleration with the PureFin AI services for significantly faster content analysis.
+PureFin AI services support GPU-accelerated inference on AMD, NVIDIA, and Intel hardware.
+Each manufacturer uses a dedicated Docker image and compose overlay.
 
-## Prerequisites
+## Architecture Overview
 
-### NVIDIA GPU Setup
+| Layer | AMD (ROCm) | NVIDIA (CUDA) | Intel | CPU |
+|-------|-----------|---------------|-------|-----|
+| Compose overlay | `docker-compose.amd.yml` | `docker-compose.gpu.yml` | `docker-compose.intel.yml` | *(base only)* |
+| PyTorch runtime | ROCm/HIP (via `rocm/pytorch` base) | CUDA 12.4 (via `nvidia/cuda` base) | CPU | CPU |
+| FFmpeg decode | CPU¹ | NVDEC (`cuda` hwaccel) | VAAPI (`iHD` driver) | CPU |
+| `FFMPEG_HWACCEL` | `none` ¹ | `cuda` | `vaapi` | *(unset)* |
 
-1. **NVIDIA GPU with CUDA Support**
-   - NVIDIA GPU (GTX 10-series or newer recommended)
-   - At least 4GB VRAM for basic models
-   - 8GB+ VRAM recommended for optimal performance
+> ¹ AMD WSL2: `/dev/dri` is not exposed via Docker Desktop on WSL2. FFmpeg decode runs on CPU.
+> PyTorch AI inference still runs on the AMD GPU via ROCm/HIP.  
+> On **native AMD Linux** (not WSL2): mount `/dev/dri/renderD128` and set `FFMPEG_HWACCEL=vaapi`.
 
-2. **NVIDIA Driver**
-   - Install the latest NVIDIA GPU drivers for your operating system
-   - Windows: Download from [NVIDIA Driver Downloads](https://www.nvidia.com/Download/index.aspx)
-   - Linux: Use package manager or NVIDIA's official installer
+---
 
-3. **NVIDIA Container Toolkit** (Docker GPU Support)
-   
-   **Windows with WSL2:**
-   ```powershell
-   # Ensure WSL2 is installed and updated
-   wsl --update
-   
-   # Install NVIDIA CUDA on WSL2
-   # Follow: https://docs.nvidia.com/cuda/wsl-user-guide/index.html
-   ```
+## AMD (ROCm) — WSL2 + Native Linux
 
-   **Linux:**
-   ```bash
-   # Add NVIDIA package repositories
-   distribution=$(. /etc/os-release;echo $ID$VERSION_ID)
-   curl -s -L https://nvidia.github.io/nvidia-docker/gpgkey | sudo apt-key add -
-   curl -s -L https://nvidia.github.io/nvidia-docker/$distribution/nvidia-docker.list | \
-     sudo tee /etc/apt/sources.list.d/nvidia-docker.list
+### Host Requirements
 
-   # Install NVIDIA Container Toolkit
-   sudo apt-get update
-   sudo apt-get install -y nvidia-container-toolkit
+#### WSL2 (Windows)
+- **Windows 11** or Windows 10 21H2+
+- **AMD Adrenalin 26.2.2+** driver with ROCm 7.2.1+ enabled
+- ROCm installed in WSL Ubuntu:
+  ```bash
+  sudo apt install rocm
+  ```
+- Verify ROCm and the GPU are visible:
+  ```bash
+  rocminfo | grep -A5 'Device Type.*GPU'
+  ls /dev/dxg          # DXCore path — must exist
+  ```
 
-   # Restart Docker
-   sudo systemctl restart docker
-   ```
+#### Native Linux
+- AMD driver with ROCm support for your kernel
+- Verify:
+  ```bash
+  rocminfo | grep -A5 'Device Type.*GPU'
+  ls /dev/kfd /dev/dri/renderD128
+  ```
 
-4. **Verify GPU Access**
-   ```bash
-   # Test NVIDIA Docker runtime
-   docker run --rm --gpus all nvidia/cuda:11.8.0-base-ubuntu22.04 nvidia-smi
-   ```
-   
-   If this shows your GPU information, you're ready to use GPU acceleration!
+### Starting the Stack
 
-## Usage
+```bash
+# From Ubuntu WSL (or native Linux), cd to ai-services:
+cd ai-services
 
-### Using GPU-Accelerated Services
+# WSL2
+docker compose -f docker-compose.yml -f docker-compose.amd.yml up --build -d
 
-Use the GPU-specific Docker Compose file:
+# Native Linux — additionally mount /dev/dri for VAAPI frame decode
+FFMPEG_HWACCEL=vaapi \
+  docker compose -f docker-compose.yml -f docker-compose.amd.yml up --build -d
+```
 
-```powershell
-# Start services with GPU acceleration
+### Validate
+
+```bash
+bash scripts/validate-gpu.sh --vendor amd
+```
+
+Expected output:
+```
+[PASS] /dev/dxg present (WSL2 DXCore path)
+[PASS] PyTorch CUDA/ROCm: available=True count=1 device=AMD Radeon RX 9060 XT
+[PASS] AMD/WSL2: FFMPEG_HWACCEL=none — CPU decode expected, GPU used for AI inference
+```
+
+### Configuration Notes
+
+- `HSA_OVERRIDE_GFX_VERSION` — uncomment for RDNA 2/3 if your GPU fails ROCm version checks
+- `LD_PRELOAD` stub — suppresses `librocprofiler-sdk.so` crash on WSL2 where `/sys/class/kfd` sysfs is absent
+- `ROCM_LIB_PATH` — override to match your ROCm version (default: `/opt/rocm-7.2.1/lib`)
+
+---
+
+## NVIDIA (CUDA)
+
+### Host Requirements
+
+- NVIDIA GPU (GTX 10-series / RTX 2000-series or newer recommended)
+- 4 GB VRAM minimum; 8 GB+ recommended
+- NVIDIA driver ≥ 525
+
+#### Install NVIDIA Container Toolkit (Linux)
+```bash
+distribution=$(. /etc/os-release; echo $ID$VERSION_ID)
+curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor \
+    -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+curl -fsSL https://nvidia.github.io/libnvidia-container/$distribution/libnvidia-container.list | \
+    sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
+    sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+
+sudo apt-get update && sudo apt-get install -y nvidia-container-toolkit
+sudo nvidia-ctk runtime configure --runtime=docker
+sudo systemctl restart docker
+```
+
+#### Verify
+```bash
+docker run --rm --gpus all nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi
+```
+
+### Starting the Stack
+
+```bash
 cd ai-services
 docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build -d
-
-# View logs to confirm GPU usage
-docker compose -f docker-compose.yml -f docker-compose.gpu.yml logs -f
-
-# Stop services
-docker compose -f docker-compose.yml -f docker-compose.gpu.yml down
 ```
 
-### Fallback to CPU (No GPU Available)
+### Validate
 
-If you don't have a GPU or NVIDIA Docker runtime, use the standard compose file:
-
-```powershell
-cd ai-services
-docker-compose up -d
+```bash
+bash scripts/validate-gpu.sh --vendor nvidia
 ```
 
-## Performance Comparison
-
-### With GPU Acceleration
-- **Scene Analysis**: ~2-5 seconds per scene
-- **Frame Analysis**: ~50-100ms per frame
-- **Full Movie Analysis**: 5-15 minutes for a 2-hour movie
-
-### CPU Only
-- **Scene Analysis**: ~5-15 seconds per scene
-- **Frame Analysis**: ~200-500ms per frame
-- **Full Movie Analysis**: 30-60 minutes for a 2-hour movie
-
-## Model Configuration for GPU
-
-The AI services will automatically detect GPU availability and adjust accordingly. You can explicitly control GPU usage with environment variables:
-
-```yaml
-environment:
-  - USE_GPU=1                    # Enable GPU if available
-  - CUDA_VISIBLE_DEVICES=0       # Use first GPU (0-indexed)
-  - TF_FORCE_GPU_ALLOW_GROWTH=1  # Allow dynamic GPU memory allocation
+Expected output:
+```
+[PASS] /dev/nvidia0 present
+[PASS] nvidia-smi: NVIDIA GeForce RTX 4080
+[PASS] PyTorch CUDA/ROCm: available=True count=1 device=NVIDIA GeForce RTX 4080
+[PASS] CUDA hwaccel probe: OK
 ```
 
 ### Multiple GPUs
 
-If you have multiple GPUs, you can distribute services across them:
-
 ```yaml
-# docker-compose.gpu.yml modifications
+# In docker-compose.gpu.yml override
 services:
-  nsfw-detector:
+  scene-analyzer:
     environment:
-      - CUDA_VISIBLE_DEVICES=0    # Use GPU 0
-  
+      CUDA_VISIBLE_DEVICES: "0"
   violence-detector:
     environment:
-      - CUDA_VISIBLE_DEVICES=1    # Use GPU 1
+      CUDA_VISIBLE_DEVICES: "1"
 ```
+
+---
+
+## Intel GPU (VAAPI / QuickSync)
+
+Supports Intel integrated graphics (Gen 8+) and Arc discrete GPUs.
+PyTorch runs on CPU; FFmpeg frame decode uses VAAPI hardware decode.
+
+### Host Requirements
+
+```bash
+# Ubuntu 22.04+
+sudo apt install intel-media-va-driver-non-free vainfo
+
+# Verify
+vainfo
+ls /dev/dri/renderD128
+```
+
+For older iGPUs (pre-Broadwell):
+```bash
+sudo apt install i965-va-driver
+# Set LIBVA_DRIVER_NAME=i965 in docker-compose.intel.yml
+```
+
+### Starting the Stack
+
+```bash
+cd ai-services
+docker compose -f docker-compose.yml -f docker-compose.intel.yml up --build -d
+```
+
+### Validate
+
+```bash
+bash scripts/validate-gpu.sh --vendor intel
+```
+
+Expected output:
+```
+[PASS] /dev/dri/renderD128 present
+[PASS] vainfo: VAAPI driver loaded
+[PASS] Intel VAAPI probe: OK
+```
+
+### QuickSync (QSV) instead of VAAPI
+
+For Intel QuickSync Video decode:
+```yaml
+# docker-compose.intel.yml override
+environment:
+  FFMPEG_HWACCEL: "qsv"
+```
+
+---
+
+## CPU Only (No GPU)
+
+No overlay needed — use the base compose:
+
+```bash
+cd ai-services
+docker compose up --build -d
+```
+
+Or explicitly:
+```bash
+docker compose -f docker-compose.yml -f docker-compose.cpu.yml up --build -d
+```
+
+---
+
+## GPU Validation Script
+
+Run after `docker compose up` to confirm the GPU setup is working:
+
+```bash
+# Auto-detect GPU vendor
+bash ai-services/scripts/validate-gpu.sh
+
+# Specify vendor explicitly
+bash ai-services/scripts/validate-gpu.sh --vendor amd
+bash ai-services/scripts/validate-gpu.sh --vendor nvidia
+bash ai-services/scripts/validate-gpu.sh --vendor intel
+bash ai-services/scripts/validate-gpu.sh --vendor cpu
+```
+
+The script checks:
+1. Host GPU device nodes (`/dev/dxg`, `/dev/nvidia0`, `/dev/dri/renderD128`)
+2. Container health status
+3. PyTorch GPU visibility (`torch.cuda.is_available()`)
+4. FFmpeg hwaccel probe (actually tests a synthetic frame decode)
+5. Service `/health` endpoints
+
+---
+
+## `FFMPEG_HWACCEL` Reference
+
+| Value | Effect |
+|-------|--------|
+| `none` | Disable FFmpeg GPU decode; use CPU (set automatically for AMD WSL2) |
+| `vaapi` | Use VAAPI (AMD/Intel Linux; requires `/dev/dri/renderD128` mounted) |
+| `cuda` / `nvdec` | Use NVDEC (NVIDIA only) |
+| `amf` | Use AMF (AMD Windows-native; not available in Linux containers) |
+| `qsv` | Use Intel QuickSync Video |
+| *(unset)* | Auto-detect: AMF → VAAPI → CUDA |
+
+Set via `VAAPI_DEVICE` env var to override the VAAPI device path (default: `/dev/dri/renderD128`).
+
+---
+
+## Performance Reference
+
+| Metric | AMD RX 9060 XT (WSL2) | NVIDIA RTX 4080 | CPU (Ryzen 9800X3D) |
+|--------|-----------------------|-----------------|---------------------|
+| TransNetV2 inference | ~79 ms/frame | ~30 ms/frame | ~400 ms/frame |
+| Scene analysis (2hr film) | ~8–12 min | ~4–6 min | ~45–90 min |
+| FFmpeg decode | CPU (WSL2) | NVDEC | CPU |
+
+> AMD native Linux with VAAPI decode is expected to perform similarly to NVIDIA.
+
+---
 
 ## Troubleshooting
 
-### GPU Not Detected
+### AMD: `rocprofiler_set_api_table` crash on WSL2
+Suppressed by the `LD_PRELOAD` stub compiled into `Dockerfile.amd`. If you see this error, ensure the AMD image was rebuilt after the stub was added.
 
-**Check NVIDIA Docker Runtime:**
-```bash
-docker info | grep -i runtime
+### AMD: `No GPU found` / `torch.cuda.is_available() = False`
+- WSL2: verify `/dev/dxg` exists and `HSA_ENABLE_DXG_DETECTION=1` is set
+- Check `ROCM_LIB_PATH` matches your installed ROCm version: `ls /opt/rocm*/lib/librocdxg.so`
+
+### NVIDIA: `could not select device driver "" with capabilities: [[gpu]]`
+NVIDIA Container Toolkit is not configured. Re-run `sudo nvidia-ctk runtime configure --runtime=docker`.
+
+### Intel: VAAPI decode fails inside container
+- Ensure `/dev/dri/renderD128` is in the `devices:` list in `docker-compose.intel.yml`
+- Run `vainfo` inside the container: `docker exec scene-analyzer vainfo`
+- Older iGPUs may need `LIBVA_DRIVER_NAME=i965`
+
+### OOM (exit code 137) during large library analysis
+Reduce `sample_count` in the Jellyfin plugin settings, or increase WSL2 memory:
+```ini
+# %USERPROFILE%\.wslconfig
+[wsl2]
+memory=24GB
 ```
+Then run `wsl --shutdown` to apply.
 
-Should show `nvidia` in the list of runtimes.
-
-**Check GPU in Container:**
-```bash
-docker run --rm --gpus all nvidia/cuda:11.8.0-base-ubuntu22.04 nvidia-smi
-```
-
-### Out of Memory Errors
-
-If you get CUDA out of memory errors:
-
-1. **Reduce batch size** in model configuration
-2. **Use smaller models** or lower resolution
-3. **Limit GPU memory** per service:
-   ```yaml
-   deploy:
-     resources:
-       reservations:
-         devices:
-           - driver: nvidia
-             count: 1
-             capabilities: [gpu]
-       limits:
-         memory: 4G  # Limit total memory
-   ```
-
-### Services Crashing on Startup
-
-1. Check Docker logs:
-   ```powershell
-   docker compose -f docker-compose.yml -f docker-compose.gpu.yml logs nsfw-detector
-   ```
-
-2. Verify CUDA version compatibility with your GPU driver
-
-3. Try CPU-only mode first to isolate GPU issues
-
-## Model Downloads
-
-Some AI models require downloading before first use. GPU-accelerated models may be different from CPU versions:
-
-```powershell
-# Download models (example)
-cd ai-services
-python scripts/bootstrap_models.py --models-dir ./models
-
-# Or use the model downloader service
-docker compose -f docker-compose.yml -f docker-compose.gpu.yml run --rm violence-detector python -c "from transformers import AutoImageProcessor, AutoModelForImageClassification; AutoImageProcessor.from_pretrained('jaranohaal/vit-base-violence-detection'); AutoModelForImageClassification.from_pretrained('jaranohaal/vit-base-violence-detection'); print('violence model ready')"
-```
-
-## Monitoring GPU Usage
-
-### Real-time Monitoring
-```bash
-# Watch GPU usage
-watch -n 1 nvidia-smi
-
-# Or use container-specific monitoring
-docker exec -it violence-detector nvidia-smi
-```
-
-### Check Service Logs for GPU Confirmation
-```bash
-docker compose -f docker-compose.yml -f docker-compose.gpu.yml logs | grep -i "gpu\|cuda"
-```
-
-You should see messages like:
-```
-nsfw-detector     | INFO: GPU detected: NVIDIA GeForce RTX 3080
-nsfw-detector     | INFO: Using CUDA device 0
-```
 
 ## Best Practices
 

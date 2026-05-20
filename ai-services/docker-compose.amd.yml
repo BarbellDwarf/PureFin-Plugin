@@ -31,6 +31,10 @@ x-rocm-env: &rocm-env
   # HSA can still detect the GPU via ROCDXG (/dev/dxg); only profiling/tracing is disabled.
   HSA_TOOLS_LIB: ""
   ROCPROFILER_REGISTER_FORCE_INTERCEPT: "0"
+  # FFmpeg frame decode runs on CPU in WSL2: /dev/dri is not exposed via Docker Desktop
+  # on WSL2, so VAAPI/AMF are unavailable to FFmpeg.  PyTorch still uses the GPU via ROCm/HIP.
+  # On native AMD Linux (not WSL2) change this to 'vaapi' and mount /dev/dri/renderD128.
+  FFMPEG_HWACCEL: "none"
   # ROCm GFX version override — uncomment only if your GPU fails ROCm version checks.
   # gfx1200 (RDNA 4, RX 9000 series) does NOT need an override.
   # RDNA 2/3 (RX 6000/7000): try 10.3.0
