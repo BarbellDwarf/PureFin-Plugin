@@ -185,19 +185,27 @@ public static class SensitivityThresholds
     /// <summary>
     /// Returns (NudityThreshold, ImmodestyThreshold, ViolenceThreshold) for the given sensitivity preset.
     /// <list type="bullet">
-    ///   <item><term>strict</term><description>0.25 / 0.05 / 0.65 — catches most content including borderline reveals</description></item>
-    ///   <item><term>moderate</term><description>0.50 / 0.10 / 0.70 — balanced (default)</description></item>
-    ///   <item><term>permissive</term><description>0.75 / 0.30 / 0.80 — only very-high-confidence content</description></item>
+    ///   <item><term>strict</term><description>0.30 / 0.10 / 0.65 — catches borderline reveals including background bikinis</description></item>
+    ///   <item><term>moderate</term><description>0.50 / 0.25 / 0.70 — balanced (default); requires clear revealing clothing or clear violence</description></item>
+    ///   <item><term>permissive</term><description>0.75 / 0.45 / 0.82 — only very-high-confidence content</description></item>
     /// </list>
-    /// Violence thresholds are set high (0.65+) because the violence classifier outputs
-    /// a noise floor of ~0.50 for all action/war content; lower values cause false positives
-    /// on virtually every scene in action films.
+    /// <para>
+    /// Violence thresholds are set high (0.65+) because the <c>framasoft/vit-base-violence-detection</c>
+    /// model outputs a noise floor of ~0.49–0.51 for all action/motion content regardless of actual violence.
+    /// Truly violent scenes score 0.60–0.80+; thresholds below 0.65 cause false positives on all action films.
+    /// </para>
+    /// <para>
+    /// Immodesty thresholds were raised vs. initial calibration after analysis of a PG-13 action film (2F2F)
+    /// showed that the nsfw-detector binary mapping (immodesty = nsfw_score × 0.4) produced scores of
+    /// 0.10–0.20 for ordinary background beach elements. moderate=0.25 filters meaningful revealing content
+    /// while ignoring ambient beachwear in wide-shots.
+    /// </para>
     /// </summary>
     public static (double NudityThreshold, double ImmodestyThreshold, double ViolenceThreshold) GetThresholds(string? sensitivity) =>
         sensitivity?.ToLowerInvariant() switch
         {
-            "strict" => (0.25, 0.05, 0.65),
-            "permissive" => (0.75, 0.30, 0.80),
-            _ => (0.50, 0.10, 0.70) // moderate
+            "strict" => (0.30, 0.10, 0.65),
+            "permissive" => (0.75, 0.45, 0.82),
+            _ => (0.50, 0.25, 0.70) // moderate
         };
 }
