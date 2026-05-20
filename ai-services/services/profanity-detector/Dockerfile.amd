@@ -15,8 +15,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-RUN mkdir -p /app/models /tmp/processing
-
 ENV USE_GPU=0
 
 EXPOSE 3000
