@@ -44,6 +44,10 @@ VIOLENCE_DETECTOR_URL = os.getenv('VIOLENCE_DETECTOR_URL', 'http://violence-dete
 VIOLENCE_MODEL_VERSION = os.getenv('VIOLENCE_MODEL_VERSION', 'jaranohaal/vit-base-violence-detection')
 USE_GPU = os.getenv('USE_GPU', '0') == '1'
 USE_AMF = os.getenv('USE_AMF', '0') == '1'
+# Explicit hwaccel override: set to 'vaapi', 'cuda', 'amf', or 'none' to bypass
+# auto-detection.  'none' disables FFmpeg GPU decode (e.g. AMD/WSL2 where only
+# /dev/dxg is present — PyTorch still uses the GPU via ROCm/HIP).
+FFMPEG_HWACCEL_OVERRIDE = os.getenv('FFMPEG_HWACCEL', '').strip().lower()
 
 # FFmpeg GPU detection cache
 ffmpeg_hwaccels = []
@@ -145,44 +149,97 @@ def _ensure_transnetv2_loaded():
         return True
     return load_transnetv2()
 
+def _probe_ffmpeg_hwaccel(accel_name):
+    """Return True if the given FFmpeg hwaccel actually works at runtime.
+
+    Some accels (notably 'cuda' on AMD hosts, 'vaapi' without a DRI device)
+    are compiled into FFmpeg but have no driver support. We probe by attempting
+    a minimal hardware-decode round-trip.
+    """
+    # Quick pre-checks to avoid slow FFmpeg probes for obviously-missing resources.
+    if accel_name == 'vaapi':
+        import glob as _glob
+        if not _glob.glob('/dev/dri/render*'):
+            logger.debug("FFmpeg VAAPI: no /dev/dri/render* device found — skipping")
+            return False
+    if accel_name in ('cuda', 'amf'):
+        # CUDA/AMF require NVIDIA/Windows GPU libraries; on AMD-only hosts they fail instantly.
+        # Detect via /dev/nvidia0 (CUDA) — if absent, don't bother.
+        if accel_name == 'cuda':
+            import os as _os
+            if not _os.path.exists('/dev/nvidia0'):
+                logger.debug("FFmpeg CUDA: /dev/nvidia0 not found — skipping")
+                return False
+    try:
+        probe_cmd = [
+            'ffmpeg', '-hide_banner', '-loglevel', 'error',
+            '-hwaccel', accel_name,
+            '-f', 'lavfi', '-i', 'testsrc=duration=0.1:size=16x16:rate=1',
+            '-vframes', '1', '-f', 'null', '-',
+        ]
+        result = subprocess.run(probe_cmd, capture_output=True, timeout=10)
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
 def detect_ffmpeg_hwaccel():
     """Detect FFmpeg hardware accelerators available inside the container.
+
+    First queries the compiled-in hwaccel list, then probes each candidate
+    to confirm it actually works at runtime (avoids false-positives like
+    'cuda' being listed on AMD/VAAPI-only hosts).
 
     Returns:
         Tuple (hwaccels: list[str], cuda_available: bool, amf_available: bool, vaapi_available: bool)
     """
     try:
         out = subprocess.check_output(['ffmpeg', '-hide_banner', '-hwaccels'], stderr=subprocess.STDOUT, text=True)
-        # Output lists available hwaccels, one per line after header
         lines = [line.strip() for line in out.splitlines() if line.strip()]
-        # Skip header lines
         accels = [item for item in lines if not item.lower().startswith('hardware acceleration methods')]
-        cuda_available = any(h.lower() == 'cuda' for h in accels)
-        amf_available = any(h.lower() == 'amf' for h in accels)
-        vaapi_available = any(h.lower() == 'vaapi' for h in accels)
+
+        # Probe candidates that are listed as compiled-in
+        cuda_listed = any(h.lower() == 'cuda' for h in accels)
+        amf_listed = any(h.lower() == 'amf' for h in accels)
+        vaapi_listed = any(h.lower() == 'vaapi' for h in accels)
+
+        # Only mark as available when runtime probe succeeds
+        vaapi_available = vaapi_listed and _probe_ffmpeg_hwaccel('vaapi')
+        cuda_available = cuda_listed and _probe_ffmpeg_hwaccel('cuda')
+        amf_available = amf_listed and _probe_ffmpeg_hwaccel('amf')
+
         if USE_GPU and cuda_available:
-            logger.info("FFmpeg CUDA hwaccel available")
+            logger.info("FFmpeg CUDA hwaccel available and working")
+        elif USE_GPU and cuda_listed and not cuda_available:
+            logger.info("FFmpeg CUDA listed but probe failed (no CUDA driver) — will not use")
         if USE_AMF and amf_available:
-            logger.info("FFmpeg AMF hwaccel available (AMD GPU)")
+            logger.info("FFmpeg AMF hwaccel available and working (AMD GPU)")
         if vaapi_available:
-            logger.info("FFmpeg VAAPI hwaccel available")
+            logger.info("FFmpeg VAAPI hwaccel available and working")
         if not (cuda_available or amf_available or vaapi_available):
-            logger.info("FFmpeg hwaccels: %s", ', '.join(accels) if accels else 'none')
+            logger.info(
+                "FFmpeg hwaccels listed: %s — none passed runtime probe. "
+                "Using CPU for frame extraction (GPU is still used for AI inference via PyTorch/ROCm).",
+                ', '.join(accels) if accels else 'none')
         return accels, cuda_available, amf_available, vaapi_available
     except (subprocess.CalledProcessError, FileNotFoundError) as e:
         logger.warning("Could not detect FFmpeg hwaccels: %s", e)
         return [], False, False, False
 
 def ffmpeg_gpu_args():
-    """Return base FFmpeg args to enable hardware acceleration when available and requested."""
+    """Return base FFmpeg args to enable hardware acceleration when available and requested.
+
+    Priority order: AMF (AMD Windows) → VAAPI (AMD/Intel Linux) → CUDA (NVIDIA).
+    VAAPI is intentionally preferred over CUDA because on AMD Linux the CUDA
+    hwaccel is compiled into FFmpeg but has no driver support (only DXG/VAAPI does).
+    On NVIDIA hosts VAAPI is typically absent so CUDA wins by default.
+    """
     if USE_AMF and ffmpeg_amf_available:
         return ['-hwaccel', 'amf']
-    elif USE_GPU and ffmpeg_cuda_available:
-        # Prefer enabling decode acceleration and keeping surfaces on GPU where possible
-        # We only enable hwaccel, not forcing output format, to avoid filter incompatibilities.
-        return ['-hwaccel', 'cuda']
     elif USE_GPU and ffmpeg_vaapi_available:
         return ['-hwaccel', 'vaapi']
+    elif USE_GPU and ffmpeg_cuda_available:
+        return ['-hwaccel', 'cuda']
     return []
 
 
@@ -655,7 +712,7 @@ def extract_frame(video_path, timestamp, output_path=None):
         
         res = subprocess.run(cmd, capture_output=True, text=True, check=False)
         if res.returncode != 0 and gpu_args:
-            logger.warning("FFmpeg frame extraction failed with GPU args at %ss, retrying on CPU...", timestamp)
+            logger.debug("FFmpeg frame extraction: GPU args failed at %ss, retrying on CPU", timestamp)
             cmd_fallback = ['ffmpeg', '-ss', str(timestamp), '-i', video_path, '-vframes', '1', '-q:v', '2', '-y', output_path]
             subprocess.run(cmd_fallback, check=True, capture_output=True)
         else:
