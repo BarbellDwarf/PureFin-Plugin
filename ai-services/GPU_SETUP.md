@@ -223,7 +223,7 @@ For issues related to:
 
 ## AMD GPU on Windows (WSL2 Docker)
 
-AMD GPUs on Windows use ROCm via WSL2 device passthrough (`/dev/kfd` and `/dev/dri`). PyTorch ROCm uses a CUDA API shim so `torch.cuda.is_available()` returns `True` when a ROCm build is used — no code changes are needed.
+AMD GPUs on Windows use ROCm via WSL2 device passthrough (typically `/dev/dxg`). PyTorch ROCm uses a CUDA API shim so `torch.cuda.is_available()` returns `True` when a ROCm build is used — no code changes are needed.
 
 ### Requirements
 
@@ -238,28 +238,34 @@ AMD GPUs on Windows use ROCm via WSL2 device passthrough (`/dev/kfd` and `/dev/d
    wmic path win32_VideoController get name
    ```
 
-2. **Verify WSL2 exposes the ROCm device** (run in a WSL terminal):
+2. **Verify WSL2 exposes the GPU device** (run in a WSL terminal):
    ```bash
-   ls /dev/kfd
+   ls /dev/dxg
    ```
-   This file must exist. If it is missing, your driver does not support ROCm WSL2 passthrough — update your AMD driver and retry.
+   This file must exist for Docker Desktop WSL2 GPU passthrough.
 
-3. **Check DRI render nodes are available** (WSL terminal):
+3. **(Optional) Check native ROCm nodes** (WSL terminal):
    ```bash
-   ls /dev/dri/
+   ls /dev/kfd /dev/dri/renderD128
    ```
-   You should see `renderD128` (or similar). This is the render node the ROCm runtime uses.
+   On some WSL ROCm setups these nodes may be missing while `/dev/dxg` still works for containers.
 
 4. **Run services with AMD GPU acceleration** (installs ROCm 6.2 PyTorch automatically on first build):
    ```powershell
    cd ai-services
    docker compose -f docker-compose.yml -f docker-compose.amd.yml up --build -d
    ```
-   The AMD overlay passes `BUILD_WITH_ROCM=1` to the `violence-detector` build stage, which
-   replaces the default CPU PyTorch wheels with ROCm 6.2 wheels. First build takes longer due
-   to the ROCm wheel download (~1 GB).
+   The AMD overlay passes `BUILD_WITH_ROCM=1` to all PyTorch-based services
+   (`scene-analyzer`, `violence-detector`, and optional `content-classifier`), replacing
+   default wheels with ROCm 6.2 wheels. First build takes longer due to ROCm wheel downloads.
 
-5. **Run the E2E profile test** (optional, validates all three model profiles on your GPU):
+5. **If you are on native Linux ROCm (non-WSL), override the AMD device path**:
+   ```powershell
+   $env:AMD_GPU_DEVICE="/dev/kfd"
+   docker compose -f docker-compose.yml -f docker-compose.amd.yml up --build -d
+   ```
+
+6. **Run the E2E profile test** (optional, validates all three model profiles on your GPU):
    ```powershell
    # From the repository root:
    .\test-scripts\Test-E2E-AMD.ps1
@@ -268,9 +274,9 @@ AMD GPUs on Windows use ROCm via WSL2 device passthrough (`/dev/kfd` and `/dev/d
    .\test-scripts\Test-E2E-AMD.ps1 -TestVideoPath "D:\Media\Movies\SomeShortClip.mp4"
    ```
 
-6. **If you get "device not found" errors** inside the container, your AMD driver version does not support ROCm WSL2 passthrough. Fall back to CPU mode:
+7. **If you get "device not found" errors** when starting AMD services, verify `/dev/dxg` exists in both `Ubuntu` and `docker-desktop` WSL distros. If unavailable, fall back to CPU mode:
    ```powershell
-   docker compose up --build
+   docker compose -f docker-compose.yml -f docker-compose.cpu.yml up -d
    ```
 
 ### GFX version overrides

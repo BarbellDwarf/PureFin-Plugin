@@ -120,12 +120,14 @@ try {
 }
 
 if (-not $SkipPrereqCheck) {
-    # Check if /dev/kfd is accessible inside WSL2 (AMD GPU device)
-    $kfdCheck = wsl -e sh -c "[ -e /dev/kfd ] && echo yes || echo no" 2>$null
-    if ($kfdCheck -match "yes") {
+    # Check if WSL2 exposes AMD GPU device nodes. Docker Desktop typically uses /dev/dxg.
+    $deviceCheck = wsl -e sh -c "([ -e /dev/dxg ] && echo dxg) || ([ -e /dev/kfd ] && echo kfd) || echo none" 2>$null
+    if ($deviceCheck -match "dxg") {
+        Write-OK "/dev/dxg accessible in WSL2 — AMD GPU passthrough present"
+    } elseif ($deviceCheck -match "kfd") {
         Write-OK "/dev/kfd accessible in WSL2 — AMD ROCm device present"
     } else {
-        Write-WARN "/dev/kfd not found in WSL2. AMD GPU acceleration may not work."
+        Write-WARN "Neither /dev/dxg nor /dev/kfd found in WSL2. AMD GPU acceleration may not work."
         Write-WARN "Ensure AMD Adrenalin driver 23.40+ is installed and WSL2 integration is enabled."
         Write-WARN "Continuing anyway (containers will fall back to CPU)..."
     }
@@ -144,7 +146,7 @@ Push-Location $AiServicesPath
 
 if (-not $SkipBuild) {
     Write-Step "Building containers with AMD ROCm overlay"
-    Write-Host "  This installs ROCm 6.2 PyTorch inside violence-detector — may take several minutes on first build."
+    Write-Host "  This builds AMD services from Dockerfile.amd (rocm/pytorch base) — may take several minutes on first build."
     & docker compose -f $ComposeBase -f $ComposeAmd build
     if ($LASTEXITCODE -ne 0) {
         Write-FAIL "docker compose build failed"
