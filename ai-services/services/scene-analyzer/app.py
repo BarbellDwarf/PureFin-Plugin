@@ -41,6 +41,9 @@ ERROR_COUNT = Counter('scene_analyzer_errors_total', 'Total scene analysis error
 # Service URLs
 NSFW_DETECTOR_URL = os.getenv('NSFW_DETECTOR_URL', 'http://nsfw-detector:3000')
 VIOLENCE_DETECTOR_URL = os.getenv('VIOLENCE_DETECTOR_URL', 'http://violence-detector:3000')
+# Optional audio-based profanity detection service.  When unset the analyzer
+# records profanity=0.0 so the key is always present in stored segments.
+PROFANITY_DETECTOR_URL = os.getenv('PROFANITY_DETECTOR_URL', '').strip()
 VIOLENCE_MODEL_VERSION = os.getenv('VIOLENCE_MODEL_VERSION', 'jaranohaal/vit-base-violence-detection')
 USE_GPU = os.getenv('USE_GPU', '0') == '1'
 USE_AMF = os.getenv('USE_AMF', '0') == '1'
@@ -857,6 +860,40 @@ def _analyze_video_payload(data):
     # Analyze each scene using real AI services
     results = []
 
+    # Profanity detection is audio-based and operates on the whole video, not
+    # per-frame.  Call the profanity detector once up-front (if configured) and
+    # map the returned per-segment scores back onto each scene by timestamp.
+    # Falls back to 0.0 for every scene when the service is unavailable.
+    profanity_segments = []
+    if PROFANITY_DETECTOR_URL:
+        try:
+            profanity_response = session.post(
+                f"{PROFANITY_DETECTOR_URL}/analyze",
+                json={'video_path': video_path},
+                timeout=600
+            )
+            if profanity_response.status_code == 200:
+                profanity_data = profanity_response.json()
+                profanity_segments = profanity_data.get('segments', [])
+                logger.info("Profanity detector returned %d segments", len(profanity_segments))
+            else:
+                logger.warning("Profanity detector returned HTTP %d — using 0.0 fallback",
+                               profanity_response.status_code)
+        except requests.RequestException as e:
+            logger.warning("Profanity detector unavailable (%s) — using 0.0 fallback", e)
+    else:
+        logger.debug("PROFANITY_DETECTOR_URL not set — profanity scored as 0.0 for all scenes")
+
+    def _lookup_profanity_score(start, end):
+        """Return the max profanity score from any profanity segment overlapping [start, end]."""
+        best = 0.0
+        for ps in profanity_segments:
+            ps_start = ps.get('start', 0.0)
+            ps_end = ps.get('end', 0.0)
+            if ps_start <= end and ps_end >= start:
+                best = max(best, ps.get('profanity', 0.0))
+        return best
+
     for i, scene in enumerate(scenes):
         try:
             timestamps = _build_sample_timestamps(scene, sample_count, len(scenes))
@@ -921,8 +958,10 @@ def _analyze_video_payload(data):
             max_nudity = max(nudity_scores) if nudity_scores else 0
             max_immodesty = max(immodesty_scores) if immodesty_scores else 0
             avg_violence = sum(violence_scores) / len(violence_scores) if violence_scores else 0
+            # Profanity score is resolved from the whole-video pass above.
+            scene_profanity = _lookup_profanity_score(scene['start'], scene['end'])
 
-            confidence = max([max_nudity, avg_violence, max_immodesty]) if any(
+            confidence = max([max_nudity, avg_violence, max_immodesty, scene_profanity]) if any(
                 [nudity_scores, violence_scores, immodesty_scores]) else 0
 
             result = {
@@ -933,13 +972,15 @@ def _analyze_video_payload(data):
                     'nudity': max_nudity,
                     'immodesty': max_immodesty,
                     'violence': avg_violence,
+                    # profanity is ALWAYS emitted so downstream stores the key unconditionally.
+                    'profanity': scene_profanity,
                     'confidence': confidence
                 }
             }
             results.append(result)
 
-            logger.info("Scene %d/%d: violence=%.3f, nudity=%.3f, immodesty=%.3f",
-                        i + 1, len(scenes), avg_violence, max_nudity, max_immodesty)
+            logger.info("Scene %d/%d: violence=%.3f, nudity=%.3f, immodesty=%.3f, profanity=%.3f",
+                        i + 1, len(scenes), avg_violence, max_nudity, max_immodesty, scene_profanity)
 
         except AnalysisJobError:
             raise
@@ -953,6 +994,7 @@ def _analyze_video_payload(data):
                     'nudity': 0,
                     'immodesty': 0,
                     'violence': 0,
+                    'profanity': 0,
                     'confidence': 0
                 }
             })

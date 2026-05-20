@@ -107,6 +107,24 @@ services:
     ipc: host
     shm_size: 8g
 
+  profanity-detector:
+    profiles: ["full"]
+    build:
+      context: ./services/profanity-detector
+      dockerfile: Dockerfile.amd
+    environment:
+      <<: *rocm-env
+      # Whisper runs on CPU in WSL2/AMD path; flip to 1 only on native AMD Linux.
+      USE_GPU: "0"
+    devices: *rocm-devices
+    volumes: *rocm-volumes
+    cap_add:
+      - SYS_PTRACE
+    security_opt:
+      - seccomp=unconfined
+    ipc: host
+    shm_size: 8g
+
   nsfw-detector:
     build:
       context: ./services/nsfw-detector

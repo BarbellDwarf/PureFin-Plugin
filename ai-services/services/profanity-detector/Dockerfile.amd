@@ -1,0 +1,24 @@
+# AMD GPU / ROCm build — Whisper runs on CPU by default (ROCm Whisper support
+# is limited), but the service still benefits from the ROCm base for future use.
+FROM rocm/pytorch:latest
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    curl \
+    procps \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+RUN mkdir -p /app/models /tmp/processing
+
+ENV USE_GPU=0
+
+EXPOSE 3000
+
+CMD ["python", "app.py"]

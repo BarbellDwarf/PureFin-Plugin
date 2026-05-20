@@ -1,0 +1,24 @@
+FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 python3-pip \
+    ffmpeg \
+    curl \
+    procps \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip3 install --no-cache-dir -r requirements.txt \
+    && pip3 install --no-cache-dir openai-whisper==20240930
+
+COPY . .
+
+RUN mkdir -p /app/models /tmp/processing
+
+ENV USE_GPU=1
+
+EXPOSE 3000
+
+CMD ["python3", "app.py"]

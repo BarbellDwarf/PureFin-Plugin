@@ -116,11 +116,36 @@ public class AnalyzeLibraryTask : IScheduledTask
         };
     }
 
+    // Required score keys every segment must carry. If a stored segment is missing
+    // any of these keys (e.g. from a pre-profanity-service analysis run) we treat the
+    // item as needing re-analysis so that all scores are collected unconditionally.
+    private static readonly string[] RequiredScoreKeys = ["nudity", "immodesty", "violence", "profanity"];
+
     private async Task AnalyzeItem(BaseItem item, CancellationToken cancellationToken)
     {
-        // Always analyze items to get fresh data with updated thresholds
-        // Remove the existing segments check to force re-analysis
-        
+        // Skip items whose existing segments already contain every required score key.
+        // This avoids re-processing the entire library on every scheduled run while
+        // still forcing re-analysis when a new category (e.g. profanity) is added to
+        // the pipeline.
+        var existing = _segmentStore.Get(item.Id.ToString());
+        if (existing is { Segments.Count: > 0 })
+        {
+            var firstSegment = existing.Segments[0];
+            if (RequiredScoreKeys.All(k => firstSegment.RawScores.ContainsKey(k)))
+            {
+                _logger.LogDebug(
+                    "Skipping {Name}: already has all required score keys ({Keys})",
+                    item.Name,
+                    string.Join(", ", RequiredScoreKeys));
+                return;
+            }
+
+            _logger.LogInformation(
+                "Re-analyzing {Name}: existing segments are missing score keys {Missing}",
+                item.Name,
+                string.Join(", ", RequiredScoreKeys.Where(k => !firstSegment.RawScores.ContainsKey(k))));
+        }
+
         // Get video path
         var path = item.Path;
         if (string.IsNullOrEmpty(path))
@@ -244,12 +269,17 @@ public class AnalyzeLibraryTask : IScheduledTask
                     var segments = new List<Segment>();
                     foreach (var scene in responseData.Scenes)
                     {
-                        // Store ALL raw AI scores for every scene so thresholds can be changed without re-analysis.
+                        // Store ALL raw AI scores unconditionally regardless of which categories
+                        // are enabled in the UI.  This means enabling a category later never
+                        // requires re-processing the library.  Profanity defaults to 0.0 until
+                        // the audio analysis service is available; the scene-analyzer returns the
+                        // key regardless so this acts as a safety net.
                         var rawScores = new Dictionary<string, double>
                         {
                             ["nudity"] = scene.Analysis.Nudity,
                             ["immodesty"] = scene.Analysis.Immodesty,
-                            ["violence"] = scene.Analysis.Violence
+                            ["violence"] = scene.Analysis.Violence,
+                            ["profanity"] = scene.Analysis.Profanity
                         };
 
                         segments.Add(new Segment
@@ -406,6 +436,13 @@ public class AnalyzeLibraryTask : IScheduledTask
 
         [JsonPropertyName("violence")]
         public double Violence { get; set; }
+
+        /// <summary>
+        /// Gets or sets the profanity score. Defaults to 0.0 when the audio analysis
+        /// service is unavailable; the scene-analyzer always emits this key.
+        /// </summary>
+        [JsonPropertyName("profanity")]
+        public double Profanity { get; set; }
 
         [JsonPropertyName("confidence")]
         public double Confidence { get; set; }

@@ -43,6 +43,7 @@ services:
       - PROCESSING_DIR=/tmp/processing
       - NSFW_DETECTOR_URL=http://nsfw-detector:3000
       - VIOLENCE_DETECTOR_URL=http://violence-detector:3000
+      - PROFANITY_DETECTOR_URL=${PROFANITY_DETECTOR_URL:-}
       - VIOLENCE_MODEL_VERSION=${VIOLENCE_MODEL_VERSION:-jaranohaal/vit-base-violence-detection}
       - MODEL_IDLE_UNLOAD_SECONDS=${MODEL_IDLE_UNLOAD_SECONDS:-900}
       - MODEL_IDLE_CHECK_SECONDS=${MODEL_IDLE_CHECK_SECONDS:-30}
@@ -105,6 +106,28 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+    restart: unless-stopped
+
+  profanity-detector:
+    profiles: ["full"]
+    build: ./services/profanity-detector
+    container_name: profanity-detector
+    ports:
+      - "3005:3000"
+    volumes:
+      - ${MODELS_PATH:-./models}:/app/models:rw
+      - ${TEMP_PATH:-./temp}:/tmp/processing
+      - ${JELLYFIN_MEDIA_PATH:-/path/to/your/media}:/mnt/media:ro
+    environment:
+      - PROCESSING_DIR=/tmp/processing
+      - WHISPER_MODEL_SIZE=${WHISPER_MODEL_SIZE:-base}
+      - USE_GPU=0
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     restart: unless-stopped
 
 networks:
