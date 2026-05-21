@@ -194,7 +194,7 @@ def print_clip_info(models_dir: str) -> None:
     print(
         "  CLIP model will auto-download from HuggingFace on content-classifier\n"
         "  startup (~600 MB). Ensure internet access from the container.\n"
-        f"  The model is cached at {models_dir}/content/clip-vit-base-patch32 after the first download."
+        f"  The model is cached at {models_dir}/clip after the first download."
     )
 
 

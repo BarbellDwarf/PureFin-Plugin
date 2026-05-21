@@ -4,10 +4,11 @@ This guide will help you set up the PureFin Content Filter AI services that anal
 
 ## Overview
 
-The AI services consist of three Docker containers:
+The AI services consist of four core Docker containers:
 - **Scene Analyzer** (port 3002): Detects scene boundaries and coordinates analysis
 - **NSFW Detector** (port 3001): Identifies nudity and immodest content
 - **Violence Detector** (port 3003): Classifies violent vs non-violent frames with a dedicated ViT model
+- **Profanity Detector** (port 3005): Transcribes audio and scores profanity
 
 ## Prerequisites
 
@@ -73,6 +74,12 @@ docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build -d
 
 # AMD ROCm mode
 docker compose -f docker-compose.yml -f docker-compose.amd.yml up --build -d
+
+# AMD ROCm mode (native Linux host)
+docker compose -f docker-compose.yml -f docker-compose.amd-linux.yml up --build -d
+
+# Intel iGPU mode (VAAPI decode)
+docker compose -f docker-compose.yml -f docker-compose.intel.yml up --build -d
 ```
 
 ### 4. Verify Services
@@ -83,7 +90,7 @@ Check that all services are healthy:
 docker-compose ps
 ```
 
-You should see all three containers with status "Up" and "(healthy)".
+You should see all active containers with status "Up" and "(healthy)".
 
 Test the health endpoints:
 
@@ -91,6 +98,7 @@ Test the health endpoints:
 curl http://localhost:3002/health  # Scene Analyzer
 curl http://localhost:3001/health  # NSFW Detector
 curl http://localhost:3003/health  # Violence Detector
+curl http://localhost:3005/health  # Profanity Detector
 ```
 
 ## Path Configuration Details
@@ -202,6 +210,10 @@ docker-compose logs nsfw-detector
 docker-compose logs violence-detector
 ```
 
+### Too many `INFO:werkzeug` request logs
+- Default is now quiet (`HTTP_ACCESS_LOGS=0`).
+- For deep debugging, set `HTTP_ACCESS_LOGS=1` in `.env` and restart services.
+
 ### "File not found" errors
 - Verify your `JELLYFIN_MEDIA_PATH` is correct
 - Check that paths in `.env` use forward slashes `/` not backslashes `\`
@@ -215,6 +227,19 @@ docker-compose logs violence-detector
 - GPU acceleration: Install nvidia-docker2 for CUDA support
 - Reduce video quality: AI can analyze lower resolutions
 - Adjust FFmpeg parameters in scene-analyzer settings
+
+### Expected throughput by hardware
+
+Use these ranges for planning analysis jobs:
+
+| Hardware class | Typical effective throughput |
+|---|---|
+| CPU-only (older 4 cores) | ~0.15x - 0.4x real-time |
+| CPU-only (newer 8+ cores) | ~0.4x - 1.0x real-time |
+| Older GPU (GTX 10xx / RX 5xxx / Arc A3xx) | ~1.0x - 2.5x real-time |
+| Newer mid/high GPU (RTX 30/40, RX 6/7/9xxx, Arc A7xx+) | ~2.5x - 8x real-time |
+
+Example: a 100-minute movie at 2x throughput takes ~50 minutes.
 
 ## Advanced Configuration
 
@@ -236,18 +261,18 @@ AI Service Base URL: http://scene-analyzer:3000
 
 ### GPU Acceleration
 
-For NVIDIA GPUs, modify docker-compose.yml:
+For NVIDIA GPUs, use the provided overlay:
 
 ```yaml
-scene-analyzer:
-  deploy:
-    resources:
-      reservations:
-        devices:
-          - driver: nvidia
-            count: 1
-            capabilities: [gpu]
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build -d
 ```
+
+For AMD:
+- **WSL2 Docker Desktop**: `docker-compose.amd.yml` (`/dev/dxg` path)
+- **Native Linux**: `docker-compose.amd-linux.yml` (`/dev/kfd` + `/dev/dri`)
+
+For Intel iGPU:
+- Use `docker-compose.intel.yml` (VAAPI decode path).
 
 ### Custom Models
 
@@ -259,6 +284,7 @@ Place custom AI models in the `models/` directory and they'll be mounted to `/ap
 - **3002**: Scene Analyzer API (main entry point for Jellyfin plugin)
 - **3003**: Violence Detector API
 - **3004**: Content Classifier API (legacy/optional profile)
+- **3005**: Profanity Detector API
 
 Configure Jellyfin plugin to connect to: `http://host.docker.internal:3002`
 

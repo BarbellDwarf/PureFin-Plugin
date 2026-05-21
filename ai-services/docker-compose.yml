@@ -20,6 +20,7 @@ services:
     environment:
       - MODEL_PATH=/app/models
       - PROCESSING_DIR=/tmp/processing
+      - HTTP_ACCESS_LOGS=${HTTP_ACCESS_LOGS:-0}
       - MODEL_IDLE_UNLOAD_SECONDS=${MODEL_IDLE_UNLOAD_SECONDS:-900}
       - MODEL_IDLE_CHECK_SECONDS=${MODEL_IDLE_CHECK_SECONDS:-30}
     healthcheck:
@@ -41,6 +42,7 @@ services:
       - ${SEGMENTS_PATH:-./segments}:/segments:rw
     environment:
       - PROCESSING_DIR=/tmp/processing
+      - HTTP_ACCESS_LOGS=${HTTP_ACCESS_LOGS:-0}
       - NSFW_DETECTOR_URL=http://nsfw-detector:3000
       - VIOLENCE_DETECTOR_URL=http://violence-detector:3000
       - PROFANITY_DETECTOR_URL=${PROFANITY_DETECTOR_URL:-}
@@ -71,6 +73,7 @@ services:
       - ${JELLYFIN_MEDIA_PATH:-/path/to/your/media}:/mnt/media:ro
     environment:
       - MODEL_PATH=/app/models
+      - HTTP_ACCESS_LOGS=${HTTP_ACCESS_LOGS:-0}
       - VIOLENCE_MODEL_PROFILE=${VIOLENCE_MODEL_PROFILE:-balanced}
       - VIOLENCE_MODEL_ID=${VIOLENCE_MODEL_ID:-}
       - VIOLENCE_MODEL_REVISION=${VIOLENCE_MODEL_REVISION:-}
@@ -109,7 +112,6 @@ services:
     restart: unless-stopped
 
   profanity-detector:
-    profiles: ["full"]
     build: ./services/profanity-detector
     container_name: profanity-detector
     ports:
@@ -121,7 +123,8 @@ services:
     environment:
       - PROCESSING_DIR=/tmp/processing
       - WHISPER_MODEL_SIZE=${WHISPER_MODEL_SIZE:-base}
-      - USE_GPU=0
+      - USE_GPU=${USE_GPU:-0}
+      - HTTP_ACCESS_LOGS=${HTTP_ACCESS_LOGS:-0}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
       interval: 30s

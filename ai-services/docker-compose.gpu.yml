@@ -62,3 +62,11 @@ services:
       <<: *nvidia-env
     <<: *nvidia-runtime
 
+  profanity-detector:
+    build:
+      context: ./services/profanity-detector
+      dockerfile: Dockerfile.nvidia
+    environment:
+      <<: *nvidia-env
+      USE_GPU: "1"
+    <<: *nvidia-runtime

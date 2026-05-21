@@ -20,6 +20,9 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
+HTTP_ACCESS_LOGS = os.getenv("HTTP_ACCESS_LOGS", "0") == "1"
+if not HTTP_ACCESS_LOGS:
+    logging.getLogger("werkzeug").setLevel(logging.WARNING)
 
 # Prometheus metrics
 REQUEST_COUNT = Counter("violence_requests_total", "Total violence detector requests")

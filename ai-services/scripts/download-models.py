@@ -33,13 +33,13 @@ MODELS_DIR = AI_SERVICES_DIR / "models"
 # Model configurations
 MODELS_CONFIG = {
     'nsfw': {
-        'name': 'NSFW Detection Model (Custom)',
-        'url': None,  # We'll create our own model
-        'filename': 'nsfw_model.h5',
+        'name': 'NSFW Detection Model (HuggingFace ViT)',
+        'url': None,
+        'filename': None,
         'extract_to': 'nsfw',
-        'expected_files': ['nsfw_model.h5'],
+        'expected_files': ['config.json'],
         'sha256': None,
-        'description': 'MobileNetV2-based NSFW detector using transfer learning',
+        'description': 'ViT NSFW classifier for nudity/explicit frame detection',
         'size_mb': 35,
         'auto_download': True
     },
@@ -58,14 +58,16 @@ MODELS_CONFIG = {
         'name': 'CLIP Model (Content Classification)', 
         'url': None,  # Auto-downloaded by transformers library
         'filename': None,
-        'extract_to': 'content',
-        'expected_files': ['clip-vit-base-patch32'],  # Will be created by transformers
+        'extract_to': 'clip',
+        'expected_files': ['config.json'],
         'sha256': None,
         'description': 'OpenAI CLIP model for general content classification',
         'size_mb': 600,  # Approximate download size
         'auto_download': True
     }
 }
+
+NSFW_MODEL_ID = 'AdamCodd/vit-base-nsfw-detector'
 
 VIOLENCE_MODEL_PROFILES = {
     'speed': 'nghiabntl/vit-base-violence-detection',
@@ -185,7 +187,7 @@ def setup_clip_model():
         logger.info("Setting up CLIP model...")
         
         # Create directory structure
-        clip_dir = MODELS_DIR / "content" / "clip-vit-base-patch32"
+        clip_dir = MODELS_DIR / "clip"
         clip_dir.mkdir(parents=True, exist_ok=True)
         
         # Create a simple Python script to download CLIP
@@ -236,12 +238,23 @@ def create_violence_model(profile: str = 'balanced'):
 
 
 def create_nsfw_model():
-    """Placeholder — real model must be provided; generating random weights is not supported."""
-    logger.error(
-        "NSFW model not found and no real model is available for download. "
-        "Please provide a trained nsfw_model.h5 in the models/nsfw/ directory."
-    )
-    return False
+    """Download and cache the HuggingFace NSFW model locally."""
+    try:
+        from transformers import AutoImageProcessor, AutoModelForImageClassification
+
+        target_dir = MODELS_DIR / 'nsfw'
+        target_dir.mkdir(parents=True, exist_ok=True)
+
+        logger.info("Downloading NSFW model from HuggingFace: %s", NSFW_MODEL_ID)
+        processor = AutoImageProcessor.from_pretrained(NSFW_MODEL_ID)
+        model = AutoModelForImageClassification.from_pretrained(NSFW_MODEL_ID)
+        processor.save_pretrained(target_dir)
+        model.save_pretrained(target_dir)
+        logger.info("NSFW model cached at %s", target_dir)
+        return True
+    except Exception as e:
+        logger.error("Failed to download NSFW model: %s", e)
+        return False
 
 
 def verify_model_files(model_key: str, config: dict, violence_profile: str = 'balanced') -> bool:
@@ -338,32 +351,21 @@ def create_model_info_files():
     nsfw_readme.parent.mkdir(parents=True, exist_ok=True)
     nsfw_readme.write_text("""# NSFW Detection Model
 
-## Model: Yahoo Open NSFW Model (MobileNetV2)
+## Model: AdamCodd/vit-base-nsfw-detector
 
-**Source**: https://github.com/GantMan/nsfw_model
-**License**: BSD-2-Clause
+**Source**: https://huggingface.co/AdamCodd/vit-base-nsfw-detector
+**Architecture**: ViT image classification
 
 ### Categories:
-- `drawings`: Non-photographic drawings/cartoons
-- `hentai`: Animated/cartoon pornographic content  
-- `neutral`: Safe for work content
-- `porn`: Photographic pornographic content
-- `sexy`: Suggestive but not explicit content
+- Binary classification: SFW vs NSFW
+- Output includes logits/softmax confidence scores
 
 ### Usage:
 ```python
-import tensorflow as tf
-model = tf.keras.models.load_model('mobilenet_v2_140_224')
+from transformers import AutoImageProcessor, AutoModelForImageClassification
+processor = AutoImageProcessor.from_pretrained("./nsfw")
+model = AutoModelForImageClassification.from_pretrained("./nsfw")
 ```
-
-### Input Format:
-- Image size: 224x224 pixels
-- Color format: RGB
-- Normalization: 0-1 (divide by 255)
-
-### Output Format:
-- 5 category scores (0.0-1.0)
-- Sum of all scores = 1.0
 """)
 
     # Violence Model README  
@@ -398,7 +400,7 @@ model = AutoModelForImageClassification.from_pretrained('./vit-base-violence-det
 """)
 
     # Content Classification README
-    content_readme = MODELS_DIR / "content" / "README.md"
+    content_readme = MODELS_DIR / "clip" / "README.md"
     content_readme.parent.mkdir(parents=True, exist_ok=True)
     content_readme.write_text("""# Content Classification (CLIP)
 
@@ -414,8 +416,8 @@ using natural language descriptions.
 ### Usage:
 ```python
 from transformers import CLIPProcessor, CLIPModel
-model = CLIPModel.from_pretrained("./clip-vit-base-patch32")
-processor = CLIPProcessor.from_pretrained("./clip-vit-base-patch32")
+model = CLIPModel.from_pretrained("./clip")
+processor = CLIPProcessor.from_pretrained("./clip")
 ```
 
 ### Capabilities:

@@ -2,16 +2,22 @@
 
 This directory contains the AI services that power content analysis for the PureFin Content Filter Jellyfin plugin.
 
-## ⚠️ Real Model Files Required
+## ⚠️ Real Models and Auto-Download Behavior
 
-AI services need trained model files in `models/`. The violence detector can auto-download
-its model from HuggingFace on first use, but NSFW still requires a local model.
-When required model files are missing, related endpoints return **HTTP 503**.
+All detector services now support lazy model initialization. If local model assets are
+missing, the service advertises `lazy_download` on `/ready` and downloads/loads the
+model on first inference request.
+
+Recommended pre-warm step after first startup:
+
+```bash
+python scripts/download-models.py --models all --violence-profile balanced
+```
 
 ```
 ai-services/
 └── models/
-    ├── nsfw/mobilenet_v2_140_224/                  ← required for NSFW detection
+    ├── nsfw/                                       ← required for NSFW detection
     ├── violence/speed/                             ← optional violence profile cache
     ├── violence/balanced/                          ← default violence profile cache
     ├── violence/quality/                           ← optional violence profile cache
@@ -25,9 +31,12 @@ See `models/model-manifest.json` for the canonical list of required models.
 1. **Configure your paths** - See [SETUP.md](SETUP.md) for detailed instructions
 2. **Copy environment template**: `cp .env.example .env`
 3. **Edit `.env`** with your media library path
-4. **Start services**: 
-   - **With NVIDIA GPU**: `docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build -d` (see [GPU_SETUP.md](GPU_SETUP.md))
+4. **Start services**:
    - **CPU only**: `docker compose -f docker-compose.yml -f docker-compose.cpu.yml up --build -d`
+   - **NVIDIA (CUDA)**: `docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build -d`
+   - **AMD on WSL2**: `docker compose -f docker-compose.yml -f docker-compose.amd.yml up --build -d`
+   - **AMD native Linux**: `docker compose -f docker-compose.yml -f docker-compose.amd-linux.yml up --build -d`
+   - **Intel iGPU (VAAPI decode)**: `docker compose -f docker-compose.yml -f docker-compose.intel.yml up --build -d`
 
 ## What You Need to Configure
 
@@ -107,6 +116,8 @@ volumes:
 - **`docker-compose.gpu.yml`** - NVIDIA GPU overlay (optional)
 - **`docker-compose.cpu.yml`** - Explicit CPU-only overlay (optional)
 - **`docker-compose.amd.yml`** - AMD ROCm overlay (optional)
+- **`docker-compose.amd-linux.yml`** - AMD ROCm native Linux overlay (optional)
+- **`docker-compose.intel.yml`** - Intel iGPU overlay (optional)
 - **`.env.example`** - Environment variable examples
 - **`SETUP.md`** - Detailed setup instructions
 
@@ -141,6 +152,20 @@ volumes:
 - Reduce `sample_count` in API requests
 - Process fewer scenes (increase `threshold`)
 - Upgrade Docker resources (RAM, CPU)
+
+### Hardware performance expectations
+
+Actual throughput depends heavily on codec, resolution, sample count, and storage speed.
+Use this as an operational baseline for full-library analysis:
+
+| Hardware class | Typical effective throughput |
+|---|---|
+| CPU-only (older 4 cores) | ~0.15x - 0.4x real-time |
+| CPU-only (newer 8+ cores) | ~0.4x - 1.0x real-time |
+| Older GPU (GTX 10xx / RX 5xxx / Arc A3xx) | ~1.0x - 2.5x real-time |
+| Newer mid/high GPU (RTX 30/40, RX 6/7/9xxx, Arc A7xx+) | ~2.5x - 8x real-time |
+
+Interpretation example: a 100-minute movie at 2x takes ~50 minutes to complete.
 
 ### Queue paused / analysis not progressing
 
@@ -189,9 +214,9 @@ Place custom AI models in the `models/` directory:
 ```
 ai-services/
 ├── models/
-│   ├── nsfw/mobilenet_v2_140_224/
+│   ├── nsfw/
 │   ├── violence/balanced/
-│   └── content/clip-vit-base-patch32/
+│   └── clip/
 ```
 
 They'll be available at `/app/models/` inside containers.
@@ -257,6 +282,16 @@ View logs for all services:
 docker-compose logs -f
 ```
 
+Control Flask access-log verbosity (`INFO:werkzeug ...` lines):
+
+```bash
+# quiet (default)
+HTTP_ACCESS_LOGS=0
+
+# verbose per-request access logs (debugging)
+HTTP_ACCESS_LOGS=1
+```
+
 View specific service logs:
 ```bash
 docker-compose logs -f scene-analyzer
@@ -288,9 +323,11 @@ docker-compose up -d
 - NVIDIA GPU with 4GB+ VRAM
 - 20GB disk space
 
-**Processing Speed:**
-- CPU: 0.5-1x real-time (slower than video playback)
-- GPU: 2-5x real-time (faster than video playback)
+**Processing Speed (quick reference):**
+- CPU (older): ~0.15x-0.4x real-time
+- CPU (newer): ~0.4x-1.0x real-time
+- Older GPU: ~1.0x-2.5x real-time
+- Newer GPU: ~2.5x-8x real-time
 
 ## Support
 

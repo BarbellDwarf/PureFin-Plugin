@@ -33,6 +33,9 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
+HTTP_ACCESS_LOGS = os.getenv("HTTP_ACCESS_LOGS", "0") == "1"
+if not HTTP_ACCESS_LOGS:
+    logging.getLogger("werkzeug").setLevel(logging.WARNING)
 
 # Prometheus metrics
 REQUEST_COUNT = Counter("nsfw_requests_total", "Total NSFW detection requests")
@@ -357,6 +360,13 @@ def ready():
             "models_loaded": False,
             "lazy_load": True,
             "reason": "Model will load on-demand",
+        })
+    if NSFW_MODEL_ID:
+        return jsonify({
+            "status": "ready",
+            "models_loaded": False,
+            "lazy_download": True,
+            "reason": "Model will download and load on first inference request",
         })
     return jsonify({
         "status": "degraded",

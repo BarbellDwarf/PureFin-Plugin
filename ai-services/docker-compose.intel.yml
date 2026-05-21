@@ -54,4 +54,12 @@ services:
       <<: *intel-env
     devices: *intel-devices
 
+  profanity-detector:
+    build:
+      context: ./services/profanity-detector
+    environment:
+      <<: *intel-env
+      USE_GPU: "0"
+    devices: *intel-devices
+
   # nsfw-detector runs CPU-only; no changes needed.

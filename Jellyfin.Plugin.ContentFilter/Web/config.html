@@ -260,51 +260,87 @@
                 samplingWarning.style.display = method === 'sampling' ? 'block' : 'none';
             }
 
+            function getAccessToken() {
+                if (!ApiClient) {
+                    return '';
+                }
+                return typeof ApiClient.accessToken === 'function'
+                    ? (ApiClient.accessToken() || '')
+                    : (ApiClient.accessToken || '');
+            }
+
             function getAuthHeaders(includeJsonContentType) {
                 var headers = {};
                 if (includeJsonContentType) {
                     headers['Content-Type'] = 'application/json';
                 }
-                if (ApiClient.accessToken) {
-                    headers['X-Emby-Authorization'] = 'MediaBrowser Token=' + ApiClient.accessToken;
+                var token = getAccessToken();
+                if (token) {
+                    headers['X-Emby-Authorization'] = 'MediaBrowser Token=' + token;
+                    headers['X-Emby-Token'] = token;
                 }
                 return headers;
             }
 
             function renderQueueStatus(data) {
-                var paused = !!data.paused;
-                var partiallyPaused = !!data.partially_paused;
+                var paused = !!(data.paused != null ? data.paused : data.Paused);
+                var partiallyPaused = !!(data.partially_paused != null ? data.partially_paused : data.PartiallyPaused);
                 var statusText = paused ? 'Paused' : 'Running';
                 if (partiallyPaused) {
                     statusText = 'Partially Paused';
                 }
-                if (paused && data.pause_reason) {
-                    statusText += ' (' + data.pause_reason + ')';
+                var pauseReason = data.pause_reason || data.pauseReason || data.PauseReason || '';
+                if (paused && pauseReason) {
+                    statusText += ' (' + pauseReason + ')';
                 }
 
                 document.getElementById('queueStatusText').textContent = statusText;
-                document.getElementById('queuePendingJobs').textContent = data.pending_jobs != null ? data.pending_jobs : '-';
-                document.getElementById('queueActiveJobs').textContent = data.active_jobs != null ? data.active_jobs : '-';
-                document.getElementById('queueProcessedJobs').textContent = data.processed_jobs != null ? data.processed_jobs : '-';
-                document.getElementById('queueFailedJobs').textContent = data.failed_jobs != null ? data.failed_jobs : '-';
-                document.getElementById('queueModelUnloadSeconds').textContent = data.model_idle_unload_seconds != null ? data.model_idle_unload_seconds : '-';
-                document.getElementById('queueConfiguredHosts').textContent = data.configured_hosts != null ? data.configured_hosts : '-';
-                document.getElementById('queueReachableHosts').textContent = data.successful_hosts != null ? data.successful_hosts : '-';
+                var pendingJobs = data.pending_jobs != null ? data.pending_jobs : data.pendingJobs != null ? data.pendingJobs : data.PendingJobs;
+                var activeJobs = data.active_jobs != null ? data.active_jobs : data.activeJobs != null ? data.activeJobs : data.ActiveJobs;
+                var processedJobs = data.processed_jobs != null ? data.processed_jobs : data.processedJobs != null ? data.processedJobs : data.ProcessedJobs;
+                var failedJobs = data.failed_jobs != null ? data.failed_jobs : data.failedJobs != null ? data.failedJobs : data.FailedJobs;
+                var unloadSeconds = data.model_idle_unload_seconds != null ? data.model_idle_unload_seconds : data.modelIdleUnloadSeconds != null ? data.modelIdleUnloadSeconds : data.ModelIdleUnloadSeconds;
+                var configuredHosts = data.configured_hosts != null ? data.configured_hosts : data.configuredHosts != null ? data.configuredHosts : data.ConfiguredHosts;
+                var reachableHosts = data.successful_hosts != null ? data.successful_hosts : data.successfulHosts != null ? data.successfulHosts : data.SuccessfulHosts;
+                var hosts = Array.isArray(data.hosts) ? data.hosts : (Array.isArray(data.Hosts) ? data.Hosts : []);
 
-                var hosts = Array.isArray(data.hosts) ? data.hosts : [];
+                document.getElementById('queuePendingJobs').textContent = pendingJobs != null ? pendingJobs : '-';
+                document.getElementById('queueActiveJobs').textContent = activeJobs != null ? activeJobs : '-';
+                document.getElementById('queueProcessedJobs').textContent = processedJobs != null ? processedJobs : '-';
+                document.getElementById('queueFailedJobs').textContent = failedJobs != null ? failedJobs : '-';
+                document.getElementById('queueModelUnloadSeconds').textContent = unloadSeconds != null ? unloadSeconds : '-';
+                document.getElementById('queueConfiguredHosts').textContent = configuredHosts != null ? configuredHosts : '-';
+                document.getElementById('queueReachableHosts').textContent = reachableHosts != null ? reachableHosts : '-';
+
                 if (hosts.length > 0) {
                     var hostRows = hosts.map(function (host) {
-                        var runtime = host.runtime || {};
-                        var queue = host.queue || {};
-                        var runtimeModel = runtime.modelProfile || runtime.model_profile || '-';
-                        var runtimeModelId = runtime.modelId || runtime.model_id || '-';
-                        var runtimeDevice = runtime.device || '-';
-                        var queueState = queue.success ? 'reachable' : 'unreachable';
-                        return '[' + (host.baseUrl || host.base_url || '-') + '] ' +
+                        var runtime = host.runtime || host.Runtime || {};
+                        var queue = host.queue || host.Queue || {};
+                        var runtimeHealth = runtime.health || runtime.Health || {};
+                        var downstream = runtimeHealth.downstream || runtimeHealth.Downstream || {};
+                        var nsfw = downstream.nsfw_detector || downstream.nsfwDetector || downstream.NsfwDetector || {};
+                        var violence = downstream.violence_detector || downstream.violenceDetector || downstream.ViolenceDetector || {};
+                        var profanity = downstream.profanity_detector || downstream.profanityDetector || downstream.ProfanityDetector || {};
+                        var runtimeModel = runtime.modelProfile || runtime.model_profile || runtime.ModelProfile || '-';
+                        var runtimeModelId = runtime.modelId || runtime.model_id || runtime.ModelId || '-';
+                        var runtimeDevice = runtime.device || runtime.Device || '-';
+                        var queueState = (queue.success != null ? queue.success : queue.Success) ? 'reachable' : 'unreachable';
+                        var nsfwReady = (nsfw.ready != null ? nsfw.ready : nsfw.Ready) ? 'ready' : 'not-ready';
+                        var violenceReady = (violence.ready != null ? violence.ready : violence.Ready) ? 'ready' : 'not-ready';
+                        var profanityConfigured = profanity.configured != null ? profanity.configured : (profanity.Configured != null ? profanity.Configured : false);
+                        var profanityReady = !profanityConfigured
+                            ? 'disabled'
+                            : ((profanity.ready != null ? profanity.ready : profanity.Ready) ? 'ready' : 'not-ready');
+                        var profanityDevice = profanity.device || profanity.Device || '-';
+                        return '[' + (host.baseUrl || host.base_url || host.BaseUrl || '-') + '] ' +
                             queueState +
                             ' | profile=' + runtimeModel +
                             ' | model=' + runtimeModelId +
-                            ' | device=' + runtimeDevice;
+                            ' | device=' + runtimeDevice +
+                            ' | nsfw=' + nsfwReady +
+                            ' | violence=' + violenceReady +
+                            ' | profanity=' + profanityReady +
+                            ' (' + profanityDevice + ')';
                     });
                     document.getElementById('queueHostsRuntime').textContent = hostRows.join(' || ');
                 } else {

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Json;
+using System.Security.Claims;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
@@ -213,8 +214,52 @@ public class PureFinSegmentsController : ControllerBase
 
     private Guid GetUserId()
     {
-        var claim = User.Claims.FirstOrDefault(c => c.Type.Equals(UserIdClaim, StringComparison.OrdinalIgnoreCase));
-        return claim == null ? Guid.Empty : Guid.Parse(claim.Value);
+        var preferredClaimTypes = new[]
+        {
+            UserIdClaim,
+            "UserId",
+            ClaimTypes.NameIdentifier,
+            "sub"
+        };
+
+        foreach (var claimType in preferredClaimTypes)
+        {
+            var claim = User.Claims.FirstOrDefault(c => c.Type.Equals(claimType, StringComparison.OrdinalIgnoreCase));
+            if (claim != null && Guid.TryParse(claim.Value, out var parsed))
+            {
+                return parsed;
+            }
+        }
+
+        var fallbackClaim = User.Claims.FirstOrDefault(c =>
+            c.Type.Contains("userid", StringComparison.OrdinalIgnoreCase) &&
+            Guid.TryParse(c.Value, out _));
+
+        if (fallbackClaim != null && Guid.TryParse(fallbackClaim.Value, out var fallback))
+        {
+            return fallback;
+        }
+
+        return Guid.Empty;
+    }
+
+    private bool HasAdminClaim()
+    {
+        return User.Claims.Any(claim =>
+        {
+            var isAdminClaimType =
+                claim.Type.Contains("administrator", StringComparison.OrdinalIgnoreCase) ||
+                claim.Type.Contains("admin", StringComparison.OrdinalIgnoreCase) ||
+                claim.Type.EndsWith("role", StringComparison.OrdinalIgnoreCase);
+
+            if (!isAdminClaimType)
+            {
+                return false;
+            }
+
+            return claim.Value.Equals("true", StringComparison.OrdinalIgnoreCase) ||
+                   claim.Value.Contains("admin", StringComparison.OrdinalIgnoreCase);
+        });
     }
 
     private ActionResult? EnsureAdmin(out Guid userId)
@@ -222,7 +267,7 @@ public class PureFinSegmentsController : ControllerBase
         userId = GetUserId();
         if (userId == Guid.Empty)
         {
-            return Unauthorized();
+            return HasAdminClaim() ? null : Unauthorized();
         }
 
         var user = _userManager.GetUserById(userId);

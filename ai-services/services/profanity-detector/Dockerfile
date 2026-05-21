@@ -7,10 +7,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     curl \
     procps \
+    python3-dev \
+    gcc \
+    g++ \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --upgrade "setuptools<81" wheel \
+    && pip install --no-cache-dir --no-build-isolation -r requirements.txt
 
 COPY . .
 

@@ -108,14 +108,14 @@ services:
     shm_size: 8g
 
   profanity-detector:
-    profiles: ["full"]
     build:
       context: ./services/profanity-detector
       dockerfile: Dockerfile.amd
     environment:
       <<: *rocm-env
-      # Whisper runs on CPU in WSL2/AMD path; flip to 1 only on native AMD Linux.
-      USE_GPU: "0"
+      USE_GPU: "1"
+      # This image does not ship the WSL rocprofiler stub; avoid preload warning noise.
+      LD_PRELOAD: ""
     devices: *rocm-devices
     volumes: *rocm-volumes
     cap_add:

@@ -3,12 +3,12 @@
   "models": [
     {
       "service": "nsfw-detector",
-      "name": "nsfw-mobilenet",
+      "name": "nsfw-vit",
       "version": "1.0.0",
-      "filename": "nsfw_model.h5",
+      "filename": "nsfw/config.json",
       "sha256": "",
       "min_plugin_version": "1.0.0",
-      "type": "keras"
+      "type": "huggingface-transformers"
     },
     {
       "service": "violence-detector",
@@ -41,7 +41,7 @@
       "service": "content-classifier",
       "name": "clip-embedder",
       "version": "1.0.0",
-      "filename": "content/clip-vit-base-patch32",
+      "filename": "clip/config.json",
       "sha256": "",
       "min_plugin_version": "1.0.0",
       "type": "clip"

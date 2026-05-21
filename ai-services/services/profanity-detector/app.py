@@ -29,6 +29,9 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
+HTTP_ACCESS_LOGS = os.getenv('HTTP_ACCESS_LOGS', '0') == '1'
+if not HTTP_ACCESS_LOGS:
+    logging.getLogger('werkzeug').setLevel(logging.WARNING)
 
 # ---------------------------------------------------------------------------
 # Prometheus metrics
@@ -63,21 +66,26 @@ _model = None
 _model_lock = threading.Lock()
 _model_available = False
 _model_load_error: str | None = None
+_model_device = 'cpu'
 _service_start_time = time.time()
 
 
-def _load_model():
+def _load_model(force_device: str | None = None):
     """Load Whisper model on first use."""
-    global _model, _model_available, _model_load_error
+    global _model, _model_available, _model_load_error, _model_device
     with _model_lock:
-        if _model is not None:
+        if _model is not None and force_device is None:
             return _model_available
         try:
             import whisper  # openai-whisper
-            device = 'cuda' if USE_GPU else 'cpu'
+            import torch
+            device = force_device or ('cuda' if USE_GPU and torch.cuda.is_available() else 'cpu')
+            if USE_GPU and device == 'cpu':
+                logger.warning("USE_GPU=1 but no GPU runtime detected; falling back to CPU")
             logger.info("Loading Whisper '%s' model on %s ...", MODEL_SIZE, device)
             _model = whisper.load_model(MODEL_SIZE, device=device)
             _model_available = True
+            _model_device = device
             logger.info("Whisper model loaded successfully")
         except ImportError:
             _model_load_error = "openai-whisper not installed — running in degraded mode"
@@ -144,9 +152,17 @@ def _analyze_video(video_path: str):
         if not _extract_audio(video_path, audio_path):
             return []
 
-        import whisper
         logger.info("Transcribing audio for profanity detection: %s", video_path)
-        result = _model.transcribe(audio_path, word_timestamps=True, verbose=False)
+        try:
+            result = _model.transcribe(audio_path, word_timestamps=True, verbose=False)
+        except Exception as ex:  # noqa: BLE001
+            if _model_device == 'cuda':
+                logger.warning("Whisper GPU transcription failed (%s); retrying on CPU", ex)
+                if not _load_model(force_device='cpu'):
+                    raise
+                result = _model.transcribe(audio_path, word_timestamps=True, verbose=False)
+            else:
+                raise
 
         segments = []
         for seg in result.get('segments', []):
@@ -181,6 +197,7 @@ def ready():
     return jsonify({
         'status': status,
         'model': MODEL_SIZE,
+        'device': _model_device,
         'model_available': ready_flag,
         'load_error': _model_load_error,
     }), code
@@ -191,6 +208,7 @@ def status():
     return jsonify({
         'service': 'profanity-detector',
         'model_size': MODEL_SIZE,
+        'device': _model_device,
         'model_available': _model_available,
         'load_error': _model_load_error,
         'uptime_seconds': int(time.time() - _service_start_time),
@@ -254,9 +272,26 @@ def analyze():
 # ---------------------------------------------------------------------------
 
 def _preload():
-    """Pre-load the Whisper model in a background thread at startup."""
+    """Pre-load the Whisper model in a background thread at startup.
+
+    Retries once after a short delay to work around ROCm runtime initialization
+    races where torch.cuda.is_available() may return False on the first call
+    even when a GPU is present (seen in WSL2/ROCm environments).
+    """
+    import torch
+
+    # Brief wait to allow the ROCm/HIP runtime to fully initialize.
+    if USE_GPU:
+        time.sleep(3)
+
     logger.info("Pre-loading Whisper model in background ...")
     _load_model()
+
+    # If we loaded on CPU despite requesting GPU, retry once after a longer
+    # delay in case the GPU runtime needed more time to become available.
+    if USE_GPU and _model_device == 'cpu' and torch.cuda.is_available():
+        logger.warning("GPU became available after initial load; reloading Whisper on cuda ...")
+        _load_model(force_device='cuda')
 
 
 if __name__ == '__main__':

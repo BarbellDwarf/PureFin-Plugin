@@ -35,9 +35,22 @@
         </div>
 
         <script type="text/javascript">
+            function getAccessToken() {
+                if (!ApiClient) {
+                    return '';
+                }
+                return typeof ApiClient.accessToken === 'function'
+                    ? (ApiClient.accessToken() || '')
+                    : (ApiClient.accessToken || '');
+            }
+
             function getAuthHeader() {
-                if (ApiClient && ApiClient.accessToken) {
-                    return { 'X-Emby-Authorization': 'MediaBrowser Token=' + ApiClient.accessToken };
+                var token = getAccessToken();
+                if (token) {
+                    return {
+                        'X-Emby-Authorization': 'MediaBrowser Token=' + token,
+                        'X-Emby-Token': token
+                    };
                 }
                 return {};
             }

@@ -1,0 +1,80 @@
+# AMD ROCm overlay for native Linux hosts (not Docker Desktop WSL2).
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.amd-linux.yml up --build -d
+#
+# Requirements:
+#   - Native Linux host with ROCm-compatible AMD GPU
+#   - ROCm userspace/drivers installed on host
+#   - /dev/kfd and /dev/dri/renderD128 available
+#   - Smoke test: rocminfo (host) and vainfo (container with /dev/dri mount)
+
+x-amd-linux-env: &amd-linux-env
+  USE_GPU: "1"
+  # Native Linux can use VAAPI decode when /dev/dri is mounted.
+  FFMPEG_HWACCEL: "vaapi"
+  VAAPI_DEVICE: "/dev/dri/renderD128"
+  LIBVA_DRIVER_NAME: "${LIBVA_DRIVER_NAME:-radeonsi}"
+
+x-amd-linux-devices: &amd-linux-devices
+  - /dev/kfd
+  - /dev/dri/renderD128
+
+x-amd-linux-security: &amd-linux-security
+  group_add:
+    - video
+    - render
+  cap_add:
+    - SYS_PTRACE
+  security_opt:
+    - seccomp=unconfined
+  ipc: host
+  shm_size: 8g
+
+services:
+  scene-analyzer:
+    build:
+      context: ./services/scene-analyzer
+      dockerfile: Dockerfile.amd
+    environment:
+      <<: *amd-linux-env
+    devices: *amd-linux-devices
+    <<: *amd-linux-security
+
+  violence-detector:
+    build:
+      context: ./services/violence-detector
+      dockerfile: Dockerfile.amd
+    environment:
+      <<: *amd-linux-env
+    devices: *amd-linux-devices
+    <<: *amd-linux-security
+
+  nsfw-detector:
+    build:
+      context: ./services/nsfw-detector
+      dockerfile: Dockerfile.amd
+    environment:
+      <<: *amd-linux-env
+    devices: *amd-linux-devices
+    <<: *amd-linux-security
+
+  content-classifier:
+    profiles: ["legacy"]
+    build:
+      context: ./services/content-classifier
+      dockerfile: Dockerfile.amd
+    environment:
+      <<: *amd-linux-env
+    devices: *amd-linux-devices
+    <<: *amd-linux-security
+
+  profanity-detector:
+    build:
+      context: ./services/profanity-detector
+      dockerfile: Dockerfile.amd
+    environment:
+      <<: *amd-linux-env
+      USE_GPU: "1"
+    devices: *amd-linux-devices
+    <<: *amd-linux-security

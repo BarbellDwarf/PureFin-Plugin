@@ -20,6 +20,9 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
+HTTP_ACCESS_LOGS = os.getenv('HTTP_ACCESS_LOGS', '0') == '1'
+if not HTTP_ACCESS_LOGS:
+    logging.getLogger('werkzeug').setLevel(logging.WARNING)
 
 # HTTP session with retries
 session = requests.Session()
@@ -1083,6 +1086,8 @@ def _downstream_snapshot():
     nsfw_ready = _request_json(f"{NSFW_DETECTOR_URL}/ready", timeout=5)
     violence_ready = _request_json(f"{VIOLENCE_DETECTOR_URL}/ready", timeout=5)
     violence_health = _request_json(f"{VIOLENCE_DETECTOR_URL}/health", timeout=5)
+    profanity_ready = _request_json(f"{PROFANITY_DETECTOR_URL}/ready", timeout=5) if PROFANITY_DETECTOR_URL else None
+    profanity_health = _request_json(f"{PROFANITY_DETECTOR_URL}/health", timeout=5) if PROFANITY_DETECTOR_URL else None
 
     return {
         'nsfw_detector': {
@@ -1112,6 +1117,39 @@ def _downstream_snapshot():
             'device': (
                 (violence_health['payload'] or {}).get('device')
                 if isinstance(violence_health['payload'], dict)
+                else None
+            ),
+        },
+        'profanity_detector': {
+            'configured': bool(PROFANITY_DETECTOR_URL),
+            'base_url': PROFANITY_DETECTOR_URL or None,
+            'ready': (
+                profanity_ready is not None and
+                profanity_ready['status_code'] == 200
+            ),
+            'status_code': (
+                profanity_ready['status_code']
+                if profanity_ready is not None
+                else None
+            ),
+            'error': (
+                profanity_ready['error']
+                if profanity_ready is not None
+                else "PROFANITY_DETECTOR_URL not configured"
+            ),
+            'ready_payload': (
+                profanity_ready['payload']
+                if profanity_ready is not None
+                else None
+            ),
+            'health_payload': (
+                profanity_health['payload']
+                if profanity_health is not None
+                else None
+            ),
+            'device': (
+                ((profanity_health or {}).get('payload') or {}).get('device')
+                if profanity_health is not None and isinstance((profanity_health or {}).get('payload'), dict)
                 else None
             ),
         },
