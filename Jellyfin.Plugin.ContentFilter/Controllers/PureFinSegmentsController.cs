@@ -103,6 +103,26 @@ public class PureFinSegmentsController : ControllerBase
     }
 
     /// <summary>
+    /// Redirects admins from a media item action link to the Segments editor page.
+    /// </summary>
+    /// <param name="itemId">The Jellyfin item ID.</param>
+    /// <returns>Redirect to the Segments configuration page.</returns>
+    [HttpGet("Segments/Edit/{itemId}")]
+    [ProducesResponseType(302)]
+    [ProducesResponseType(401)]
+    [ProducesResponseType(403)]
+    public ActionResult EditSegmentsRedirect([FromRoute] Guid itemId)
+    {
+        var authError = EnsureAdmin(out _);
+        if (authError != null)
+        {
+            return authError;
+        }
+
+        return Redirect($"/web/#/configurationpage?name=Segments&itemId={itemId:D}");
+    }
+
+    /// <summary>
     /// Updates PureFin segment data for a specific media item.
     /// </summary>
     /// <param name="itemId">The Jellyfin item ID.</param>

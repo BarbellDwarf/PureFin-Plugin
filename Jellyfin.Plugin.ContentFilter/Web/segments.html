@@ -3,12 +3,91 @@
 <head>
     <meta charset="utf-8">
     <title>PureFin Segments</title>
+    <style>
+        .pf-card {
+            border: 1px solid #555;
+            border-radius: 6px;
+            padding: 12px;
+            margin-bottom: 12px;
+            background: #1f1f1f;
+        }
+
+        .pf-search-result {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            border: 1px solid #444;
+            border-radius: 4px;
+            padding: 8px 10px;
+            margin-bottom: 8px;
+            background: #181818;
+        }
+
+        .pf-search-title {
+            font-weight: 600;
+        }
+
+        .pf-search-meta {
+            opacity: 0.8;
+            font-size: 0.92em;
+        }
+
+        .pf-toolbar {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 10px;
+            position: sticky;
+            top: 0;
+            z-index: 2;
+            background: #121212;
+            padding: 8px 0;
+        }
+
+        .pf-table-wrap {
+            overflow-x: auto;
+        }
+
+        .pf-table {
+            width: 100%;
+            min-width: 1160px;
+            border-collapse: collapse;
+        }
+
+        .pf-table th,
+        .pf-table td {
+            padding: 6px;
+            text-align: left;
+            vertical-align: top;
+            border-bottom: 1px solid #333;
+        }
+
+        .pf-table tbody tr:nth-child(even) {
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .pf-input-mono {
+            font-family: Consolas, "Courier New", monospace;
+            font-size: 0.92em;
+        }
+
+        .pf-active {
+            color: #7bd88f;
+            font-weight: 700;
+        }
+
+        .pf-inactive {
+            color: #ff7a7a;
+            font-weight: 700;
+        }
+    </style>
 </head>
 <body>
     <div id="PureFinSegmentsPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button">
         <div data-role="content">
             <div class="content-primary">
-                <div class="verticalSection">
+                <div class="verticalSection pf-card">
                     <h2 class="sectionTitle">PureFin Segments (Admin Only)</h2>
                     <div class="fieldDescription" style="margin-bottom: 12px;">
                         Search for a movie or episode and inspect the segment windows that PureFin will filter.
@@ -26,7 +105,7 @@
                     <div id="segmentSearchResults" style="margin-top: 16px;"></div>
                 </div>
 
-                <div class="verticalSection" id="segmentDetailsSection" style="display: none; margin-top: 24px;">
+                <div class="verticalSection pf-card" id="segmentDetailsSection" style="display: none; margin-top: 24px;">
                     <h3 id="segmentItemTitle" style="margin-top: 0;"></h3>
                     <div id="segmentMeta" class="fieldDescription" style="margin-bottom: 12px;"></div>
                     <div id="segmentThresholdPreview" style="display: none; margin-bottom: 16px;"></div>
@@ -251,11 +330,17 @@
 
                 items.forEach(function (item) {
                     var row = document.createElement('div');
-                    row.style.marginBottom = '8px';
+                    row.className = 'pf-search-result';
 
-                    var label = document.createElement('span');
-                    label.textContent = item.Name + ' (' + item.Type + ')';
-                    label.style.marginRight = '12px';
+                    var labelWrap = document.createElement('div');
+                    var label = document.createElement('div');
+                    label.className = 'pf-search-title';
+                    label.textContent = item.Name;
+                    var meta = document.createElement('div');
+                    meta.className = 'pf-search-meta';
+                    meta.textContent = item.Type + (item.ProductionYear ? (' • ' + item.ProductionYear) : '');
+                    labelWrap.appendChild(label);
+                    labelWrap.appendChild(meta);
 
                     var btn = document.createElement('button');
                     btn.setAttribute('is', 'emby-button');
@@ -265,7 +350,7 @@
                         loadSegments(item);
                     });
 
-                    row.appendChild(label);
+                    row.appendChild(labelWrap);
                     row.appendChild(btn);
                     container.appendChild(row);
                 });
@@ -339,16 +424,17 @@
                 renderThresholdControls();
 
                 var toolbar = document.createElement('div');
-                toolbar.style.marginBottom = '10px';
+                toolbar.className = 'pf-toolbar';
                 toolbar.innerHTML =
                     '<button is="emby-button" type="button" class="raised" id="segmentAddButton"><span>Add Segment</span></button> ' +
                     '<button is="emby-button" type="button" class="raised" id="segmentSaveButton"><span>Save Changes</span></button> ' +
                     '<button is="emby-button" type="button" class="raised" id="segmentReloadButton"><span>Reload</span></button>';
                 tableContainer.appendChild(toolbar);
 
+                var tableWrap = document.createElement('div');
+                tableWrap.className = 'pf-table-wrap';
                 var table = document.createElement('table');
-                table.className = 'detailTable';
-                table.style.width = '100%';
+                table.className = 'detailTable pf-table';
                 table.innerHTML =
                     '<thead><tr>' +
                     '<th style="text-align:left;padding:6px;">Start (HH:MM:SS.mmm)</th>' +
@@ -360,7 +446,8 @@
                     '<th style="text-align:left;padding:6px;">Source</th>' +
                     '<th style="text-align:left;padding:6px;">Remove</th>' +
                     '</tr></thead><tbody id="segmentEditorBody"></tbody>';
-                tableContainer.appendChild(table);
+                tableWrap.appendChild(table);
+                tableContainer.appendChild(tableWrap);
 
                 var body = document.getElementById('segmentEditorBody');
                 var visibleSegments = settings.showOnlyActive
@@ -378,15 +465,15 @@
                         var previewActive = previewCategories.length > 0;
                         var row = document.createElement('tr');
                         row.innerHTML =
-                            '<td style="padding:6px;"><input is="emby-input" type="text" data-field="start" data-index="' + index + '" value="' + escapeHtml(secondsToTimestamp(segment.Start)) + '" /></td>' +
-                            '<td style="padding:6px;"><input is="emby-input" type="text" data-field="end" data-index="' + index + '" value="' + escapeHtml(secondsToTimestamp(segment.End)) + '" /></td>' +
+                            '<td style="padding:6px;"><input is="emby-input" class="pf-input-mono" type="text" data-field="start" data-index="' + index + '" value="' + escapeHtml(secondsToTimestamp(segment.Start)) + '" /></td>' +
+                            '<td style="padding:6px;"><input is="emby-input" class="pf-input-mono" type="text" data-field="end" data-index="' + index + '" value="' + escapeHtml(secondsToTimestamp(segment.End)) + '" /></td>' +
                             '<td style="padding:6px;"><select data-field="action" data-index="' + index + '">' +
                             '<option value="skip"' + (segment.Action === 'skip' ? ' selected' : '') + '>skip</option>' +
                             '<option value="mute"' + (segment.Action === 'mute' ? ' selected' : '') + '>mute (fallbacks to skip)</option>' +
                             '</select></td>' +
-                            '<td style="padding:6px;"><strong style="color:' + (previewActive ? '#7bd88f' : '#ff7a7a') + ';">' + (previewActive ? 'active' : 'inactive') + '</strong></td>' +
+                            '<td style="padding:6px;"><strong class="' + (previewActive ? 'pf-active' : 'pf-inactive') + '">' + (previewActive ? 'active' : 'inactive') + '</strong></td>' +
                             '<td style="padding:6px;">' + escapeHtml(previewCategories.join(', ') || 'n/a') + '</td>' +
-                            '<td style="padding:6px;"><textarea data-field="scores" data-index="' + index + '" style="width:100%;min-height:56px;">' + escapeHtml(JSON.stringify(segment.RawScores || {})) + '</textarea></td>' +
+                            '<td style="padding:6px;"><textarea class="pf-input-mono" data-field="scores" data-index="' + index + '" style="width:100%;min-height:56px;">' + escapeHtml(JSON.stringify(segment.RawScores || {})) + '</textarea></td>' +
                             '<td style="padding:6px;"><input is="emby-input" type="text" data-field="source" data-index="' + index + '" value="' + escapeHtml(segment.Source || 'manual') + '" /></td>' +
                             '<td style="padding:6px;"><button is="emby-button" type="button" class="raised" data-field="remove" data-index="' + index + '"><span>Remove</span></button></td>';
                         body.appendChild(row);
@@ -567,6 +654,40 @@
                 });
             }
 
+            function getItemIdFromHashQuery() {
+                var hash = String(window.location.hash || '');
+                var queryStart = hash.indexOf('?');
+                if (queryStart < 0) {
+                    return '';
+                }
+
+                var query = hash.substring(queryStart + 1);
+                var params = new URLSearchParams(query);
+                return (params.get('itemId') || '').trim();
+            }
+
+            function loadItemFromHashIfPresent() {
+                var itemId = getItemIdFromHashQuery();
+                if (!itemId) {
+                    return;
+                }
+
+                Dashboard.showLoadingMsg();
+                var userId = ApiClient.getCurrentUserId();
+                ApiClient.getItem(userId, itemId)
+                    .then(function (item) {
+                        if (!item || !item.Id) {
+                            throw new Error('Item not found for itemId=' + itemId);
+                        }
+
+                        loadSegments(item);
+                    })
+                    .catch(function (error) {
+                        Dashboard.hideLoadingMsg();
+                        Dashboard.alert('Unable to open item from link: ' + (error.message || error));
+                    });
+            }
+
             function loadPreviewConfig() {
                 return ApiClient.getPluginConfiguration(pluginUniqueId).then(function (config) {
                     previewSettings.enableNudity = !!config.EnableNudity;
@@ -591,6 +712,7 @@
                 currentItem = null;
                 currentSegments = [];
                 loadPreviewConfig();
+                loadItemFromHashIfPresent();
             }
 
             function initializeSegmentsPage() {
@@ -608,6 +730,12 @@
                 page.setAttribute('data-purefin-init', '1');
                 page.addEventListener('pageshow', onPageShow);
                 searchButton.addEventListener('click', runSearch);
+                document.getElementById('segmentSearch').addEventListener('keydown', function (event) {
+                    if (event.key === 'Enter') {
+                        event.preventDefault();
+                        runSearch();
+                    }
+                });
             }
 
             if (document.readyState === 'loading') {

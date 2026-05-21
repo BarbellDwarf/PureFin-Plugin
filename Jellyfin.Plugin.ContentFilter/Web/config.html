@@ -214,7 +214,15 @@
                             <button is="emby-button" type="button" class="raised" id="pauseQueueButton">Pause Queue</button>
                             <button is="emby-button" type="button" class="raised" id="resumeQueueButton">Resume Queue</button>
                         </div>
-                         
+
+                        <div class="checkboxContainer">
+                            <label>
+                                <input type="checkbox" is="emby-checkbox" id="autoPauseQueueDuringTranscoding" />
+                                <span>Auto-pause AI queue while Jellyfin is transcoding</span>
+                            </label>
+                            <div class="fieldDescription">Useful when AI jobs share compute with playback transcodes. Disable this if AI runs on a separate host and should keep processing during transcoding.</div>
+                        </div>
+                          
                         <div class="checkboxContainer">
                             <label>
                                 <input type="checkbox" is="emby-checkbox" id="preferCommunityData" />
@@ -426,6 +434,7 @@
                     document.getElementById('aiServiceLoadBalancingMode').value = config.AiServiceLoadBalancingMode || 'round_robin';
                     document.getElementById('jellyfinMediaPath').value = config.JellyfinMediaPath || '';
                     document.getElementById('aiServiceMediaPath').value = config.AiServiceMediaPath || '/mnt/media';
+                    document.getElementById('autoPauseQueueDuringTranscoding').checked = !!config.AutoPauseQueueDuringTranscoding;
                     document.getElementById('preferCommunityData').checked = config.PreferCommunityData;
                     document.getElementById('enableOsdFeedback').checked = config.EnableOsdFeedback;
                     
@@ -499,6 +508,7 @@
                     config.AiServiceLoadBalancingMode = document.getElementById('aiServiceLoadBalancingMode').value;
                     config.JellyfinMediaPath = document.getElementById('jellyfinMediaPath').value;
                     config.AiServiceMediaPath = document.getElementById('aiServiceMediaPath').value;
+                    config.AutoPauseQueueDuringTranscoding = document.getElementById('autoPauseQueueDuringTranscoding').checked;
                     config.PreferCommunityData = document.getElementById('preferCommunityData').checked;
                     config.EnableOsdFeedback = document.getElementById('enableOsdFeedback').checked;
                     

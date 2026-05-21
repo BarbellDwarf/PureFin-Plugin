@@ -2,13 +2,15 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Plugin.ContentFilter.Providers;
 using Jellyfin.Plugin.ContentFilter.Services;
 using Jellyfin.Plugin.ContentFilter.Tasks;
 using MediaBrowser.Controller;
+using MediaBrowser.Controller.Providers;
 using MediaBrowser.Controller.Plugins;
 using MediaBrowser.Controller.Session;
 using MediaBrowser.Model.Tasks;
-using Microsoft.Extensions.Http;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -23,7 +25,9 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
     /// <inheritdoc />
     public void RegisterServices(IServiceCollection serviceCollection, IServerApplicationHost applicationHost)
     {
+        serviceCollection.AddHttpContextAccessor();
         serviceCollection.AddSingleton<SegmentStore>();
+        serviceCollection.AddSingleton<IExternalUrlProvider, EditSegmentsExternalUrlProvider>();
         serviceCollection.AddHttpClient();
         serviceCollection.AddHostedService<PluginEntryPoint>();
         serviceCollection.AddSingleton<IScheduledTask, AnalyzeLibraryTask>();
@@ -49,6 +53,7 @@ public class PluginEntryPoint : IHostedService, IDisposable
     /// <param name="loggerFactory">The logger factory.</param>
     /// <param name="sessionManager">The session manager.</param>
     /// <param name="segmentStore">The segment store.</param>
+    /// <param name="httpClientFactory">HTTP client factory.</param>
     public PluginEntryPoint(
         ILoggerFactory loggerFactory,
         ISessionManager sessionManager,

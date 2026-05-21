@@ -1,0 +1,191 @@
+name: Release AI Services
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ai-services/**'
+      - '.github/workflows/release-ai-services.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  release-ai-services:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect releasable AI service changes
+        id: detect
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          BEFORE_SHA="${{ github.event.before }}"
+          if [[ -z "${BEFORE_SHA}" || "${BEFORE_SHA}" == "0000000000000000000000000000000000000000" ]]; then
+            CHANGED_FILES="$(git diff-tree --no-commit-id --name-only -r HEAD || true)"
+          else
+            CHANGED_FILES="$(git diff --name-only "${BEFORE_SHA}" "${GITHUB_SHA}" || true)"
+          fi
+
+          declare -A CHANGED_SERVICES=()
+          SHARED_CHANGED=false
+
+          while IFS= read -r file; do
+            [[ -z "${file}" ]] && continue
+
+            if [[ "${file}" =~ ^ai-services/services/([^/]+)/ ]]; then
+              CHANGED_SERVICES["${BASH_REMATCH[1]}"]=1
+              continue
+            fi
+
+            if [[ "${file}" =~ ^ai-services/(docker-compose.*\.yml|\.env\.example|README\.md|SETUP\.md|GPU_SETUP\.md|DEPLOYMENT_OPTIONS\.md|PATH_CONFIGURATION\.md|scripts/|models/) ]]; then
+              SHARED_CHANGED=true
+            fi
+          done <<< "${CHANGED_FILES}"
+
+          SERVICES=""
+          if [[ "${SHARED_CHANGED}" == "true" ]]; then
+            for service_dir in ai-services/services/*; do
+              service_name="$(basename "${service_dir}")"
+              SERVICES="${SERVICES} ${service_name}"
+            done
+          else
+            for service_name in "${!CHANGED_SERVICES[@]}"; do
+              SERVICES="${SERVICES} ${service_name}"
+            done
+          fi
+
+          SERVICES="$(echo "${SERVICES}" | xargs || true)"
+          if [[ -z "${SERVICES}" ]]; then
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            echo "services=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "should_release=true" >> "$GITHUB_OUTPUT"
+          echo "services=${SERVICES}" >> "$GITHUB_OUTPUT"
+
+      - name: Compute next semver
+        id: semver
+        if: steps.detect.outputs.should_release == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --tags --force
+
+          LAST_TAG="$(git tag --list 'ai-services-v*' --sort=-v:refname | head -n1 || true)"
+          if [[ -z "${LAST_TAG}" ]]; then
+            BASE_VERSION="0.1.0"
+          else
+            BASE_VERSION="${LAST_TAG#ai-services-v}"
+          fi
+
+          RANGE_SPEC=""
+          if [[ -n "${LAST_TAG}" ]]; then
+            RANGE_SPEC="${LAST_TAG}..HEAD"
+          fi
+
+          COMMITS="$(git log ${RANGE_SPEC} --pretty=format:%s || true)"
+          BODY="$(git log ${RANGE_SPEC} --pretty=format:%b || true)"
+
+          BUMP="patch"
+          if echo "${COMMITS}"$'\n'"${BODY}" | grep -Eq 'BREAKING CHANGE|!:'; then
+            BUMP="major"
+          elif echo "${COMMITS}" | grep -Eq '^feat(\(.+\))?: '; then
+            BUMP="minor"
+          fi
+
+          IFS='.' read -r MAJOR MINOR PATCH <<< "${BASE_VERSION}"
+          case "${BUMP}" in
+            major)
+              MAJOR=$((MAJOR + 1))
+              MINOR=0
+              PATCH=0
+              ;;
+            minor)
+              MINOR=$((MINOR + 1))
+              PATCH=0
+              ;;
+            *)
+              PATCH=$((PATCH + 1))
+              ;;
+          esac
+
+          VERSION="${MAJOR}.${MINOR}.${PATCH}"
+          TAG="ai-services-v${VERSION}"
+
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "bump=${BUMP}" >> "$GITHUB_OUTPUT"
+          echo "last_tag=${LAST_TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Build AI service setup bundles
+        if: steps.detect.outputs.should_release == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.semver.outputs.version }}"
+          mkdir -p dist/ai-services
+
+          IFS=' ' read -r -a SERVICES <<< "${{ steps.detect.outputs.services }}"
+
+          for service_name in "${SERVICES[@]}"; do
+            service_dir="ai-services/services/${service_name}"
+            staging="dist/staging/${service_name}"
+            mkdir -p "${staging}/services"
+
+            cp -R "${service_dir}" "${staging}/services/${service_name}"
+            cp ai-services/docker-compose*.yml "${staging}/" || true
+            cp ai-services/.env.example "${staging}/" || true
+            cp ai-services/README.md "${staging}/" || true
+            cp ai-services/SETUP.md "${staging}/" || true
+            cp ai-services/GPU_SETUP.md "${staging}/" || true
+            cp ai-services/DEPLOYMENT_OPTIONS.md "${staging}/" || true
+            cp ai-services/PATH_CONFIGURATION.md "${staging}/" || true
+            cp -R ai-services/scripts "${staging}/scripts" || true
+            cp -R ai-services/models "${staging}/models" || true
+
+            (cd "${staging}" && zip -r "../../ai-services/${service_name}-${VERSION}.zip" .)
+          done
+
+          zip -r "dist/ai-services/purefin-ai-stack-${VERSION}.zip" ai-services \
+            -x "*/__pycache__/*" "*.pyc" "*/.pytest_cache/*" "*/.venv/*"
+
+      - name: Upload workflow artifacts
+        if: steps.detect.outputs.should_release == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-services-${{ steps.semver.outputs.version }}
+          path: dist/ai-services/*.zip
+          retention-days: 30
+
+      - name: Create Git tag
+        if: steps.detect.outputs.should_release == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.semver.outputs.tag }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git rev-parse "${TAG}" >/dev/null 2>&1; then
+            echo "Tag ${TAG} already exists; skipping."
+            exit 0
+          fi
+          git tag "${TAG}"
+          git push origin "${TAG}"
+
+      - name: Publish GitHub release
+        if: steps.detect.outputs.should_release == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.semver.outputs.tag }}
+          name: AI Services ${{ steps.semver.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          generate_release_notes: true
+          files: dist/ai-services/*.zip

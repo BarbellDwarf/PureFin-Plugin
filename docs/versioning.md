@@ -44,6 +44,17 @@ AI models are versioned independently of the plugin using semantic versioning (`
 | Pre-release | `v1.0.0.0-beta.1` | Testing/early access |
 | Nightly | `nightly-YYYYMMDD` | Automated builds (not in manifest) |
 
+## AI Services Versioning
+
+AI services use independent semantic versions and tags from the plugin:
+
+| Component | Tag Pattern | Version Format |
+|-----------|-------------|----------------|
+| Jellyfin plugin | `v1.2.3.0` | `MAJOR.MINOR.PATCH.0` |
+| AI services stack | `ai-services-v1.2.3` | `MAJOR.MINOR.PATCH` |
+
+On pushes to `main`, the AI services workflow computes the next `ai-services-v*` version and only publishes artifacts for services whose files were affected (or all services if shared stack files changed).
+
 ## Release Process
 
 1. Update `build.yaml` version field
