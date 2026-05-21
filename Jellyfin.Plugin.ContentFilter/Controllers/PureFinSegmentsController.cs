@@ -103,6 +103,92 @@ public class PureFinSegmentsController : ControllerBase
     }
 
     /// <summary>
+    /// Updates PureFin segment data for a specific media item.
+    /// </summary>
+    /// <param name="itemId">The Jellyfin item ID.</param>
+    /// <param name="request">Updated segment payload.</param>
+    /// <returns>Saved segment data for the media item.</returns>
+    [HttpPut("Segments/{itemId}")]
+    [ProducesResponseType(typeof(SegmentData), 200)]
+    [ProducesResponseType(400)]
+    [ProducesResponseType(401)]
+    [ProducesResponseType(403)]
+    [ProducesResponseType(404)]
+    public async Task<ActionResult<SegmentData>> UpdateSegments([FromRoute] Guid itemId, [FromBody] SegmentUpdateRequest request)
+    {
+        var authError = EnsureAdmin(out var userId);
+        if (authError != null)
+        {
+            return authError;
+        }
+
+        var item = _libraryManager.GetItemById<BaseItem>(itemId, userId);
+        if (item == null)
+        {
+            return NotFound();
+        }
+
+        if (request == null || request.Segments == null)
+        {
+            return BadRequest(new { error = "Segments payload is required." });
+        }
+
+        var normalizedSegments = new List<Segment>(request.Segments.Count);
+        foreach (var requestedSegment in request.Segments)
+        {
+            if (requestedSegment.End <= requestedSegment.Start)
+            {
+                return BadRequest(new { error = "Each segment must have end > start." });
+            }
+
+            if (requestedSegment.Start < 0)
+            {
+                return BadRequest(new { error = "Segment start must be >= 0." });
+            }
+
+            var source = string.IsNullOrWhiteSpace(requestedSegment.Source)
+                ? "manual"
+                : requestedSegment.Source.Trim();
+            var rawScores = NormalizeRawScores(requestedSegment.RawScores, source);
+            normalizedSegments.Add(new Segment
+            {
+                Start = requestedSegment.Start,
+                End = requestedSegment.End,
+                Action = string.IsNullOrWhiteSpace(requestedSegment.Action) ? "skip" : requestedSegment.Action.Trim(),
+                Source = source,
+                RawScores = rawScores
+            });
+        }
+
+        var mediaId = itemId.ToString();
+        var existing = _segmentStore.Get(mediaId);
+        var saved = new SegmentData
+        {
+            MediaId = mediaId,
+            Version = (existing?.Version ?? 0) + 1,
+            CreatedAt = DateTime.UtcNow,
+            FileHash = existing?.FileHash,
+            Segments = normalizedSegments.OrderBy(segment => segment.Start).ToList()
+        };
+
+        await _segmentStore.Put(mediaId, saved);
+        var config = Plugin.Instance?.Configuration;
+        if (config == null)
+        {
+            return Ok(saved);
+        }
+
+        return Ok(new SegmentData
+        {
+            MediaId = saved.MediaId,
+            Version = saved.Version,
+            CreatedAt = saved.CreatedAt,
+            FileHash = saved.FileHash,
+            Segments = saved.Segments.Select(segment => EnrichSegment(segment, config)).ToList()
+        });
+    }
+
+    /// <summary>
     /// Gets analysis queue status from the AI orchestrator.
     /// </summary>
     /// <returns>Queue status.</returns>
@@ -594,5 +680,75 @@ public class PureFinSegmentsController : ControllerBase
         /// Gets or sets optional pause reason.
         /// </summary>
         public string? Reason { get; set; }
+    }
+
+    /// <summary>
+    /// Segment update payload.
+    /// </summary>
+    public sealed class SegmentUpdateRequest
+    {
+        /// <summary>
+        /// Gets or sets the segments to persist.
+        /// </summary>
+        public List<SegmentUpdateItem>? Segments { get; set; }
+    }
+
+    /// <summary>
+    /// Segment update item payload.
+    /// </summary>
+    public sealed class SegmentUpdateItem
+    {
+        /// <summary>
+        /// Gets or sets segment start in seconds.
+        /// </summary>
+        public double Start { get; set; }
+
+        /// <summary>
+        /// Gets or sets segment end in seconds.
+        /// </summary>
+        public double End { get; set; }
+
+        /// <summary>
+        /// Gets or sets action type.
+        /// </summary>
+        public string? Action { get; set; }
+
+        /// <summary>
+        /// Gets or sets segment source.
+        /// </summary>
+        public string? Source { get; set; }
+
+        /// <summary>
+        /// Gets or sets raw category scores.
+        /// </summary>
+        public Dictionary<string, double>? RawScores { get; set; }
+    }
+
+    private static Dictionary<string, double> NormalizeRawScores(Dictionary<string, double>? rawScores, string source)
+    {
+        if (rawScores == null || rawScores.Count == 0)
+        {
+            return string.Equals(source, "manual", StringComparison.OrdinalIgnoreCase)
+                ? new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase) { ["manual"] = 1.0 }
+                : new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        var normalized = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (key, value) in rawScores)
+        {
+            if (string.IsNullOrWhiteSpace(key) || double.IsNaN(value) || double.IsInfinity(value))
+            {
+                continue;
+            }
+
+            normalized[key.Trim()] = Math.Clamp(value, 0.0, 1.0);
+        }
+
+        if (normalized.Count == 0 && string.Equals(source, "manual", StringComparison.OrdinalIgnoreCase))
+        {
+            normalized["manual"] = 1.0;
+        }
+
+        return normalized;
     }
 }

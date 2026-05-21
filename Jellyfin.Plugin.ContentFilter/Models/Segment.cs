@@ -59,6 +59,11 @@ public record Segment
     /// <returns>True if any category exceeds its threshold and is enabled.</returns>
     public bool ShouldFilter(PluginConfiguration config)
     {
+        if (string.Equals(Source, "manual", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
         if (!config.EnableNudity && !config.EnableImmodesty && 
             !config.EnableViolence && !config.EnableProfanity)
         {
@@ -97,6 +102,12 @@ public record Segment
     public string[] GetActiveCategories(PluginConfiguration config)
     {
         var activeCategories = new List<string>();
+
+        if (string.Equals(Source, "manual", StringComparison.OrdinalIgnoreCase))
+        {
+            activeCategories.Add("manual");
+        }
+
         RawScores.TryGetValue("immodesty", out var immodestyScore);
 
         foreach (var (category, score) in RawScores)
@@ -122,6 +133,6 @@ public record Segment
             }
         }
 
-        return activeCategories.ToArray();
+        return activeCategories.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
     }
 }

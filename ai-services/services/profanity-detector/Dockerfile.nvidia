@@ -11,7 +11,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY requirements.txt .
 RUN pip3 install --no-cache-dir --upgrade "setuptools<81" wheel \
-    && pip3 install --no-cache-dir --no-build-isolation -r requirements.txt
+    && pip3 install --no-cache-dir \
+        --index-url https://download.pytorch.org/whl/cu124 \
+        torch==2.5.1 torchaudio==2.5.1 \
+    && pip3 install --no-cache-dir --no-build-isolation -r requirements.txt \
+    && pip3 install --no-cache-dir numba==0.60.0 llvmlite==0.43.0
 
 COPY . .
 

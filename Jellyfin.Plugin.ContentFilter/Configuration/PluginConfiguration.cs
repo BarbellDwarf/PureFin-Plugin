@@ -94,6 +94,12 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool EnableOsdFeedback { get; set; } = false;
 
     /// <summary>
+    /// Gets or sets a value indicating whether queued AI analysis should be auto-paused
+    /// while any active Jellyfin session is transcoding.
+    /// </summary>
+    public bool AutoPauseQueueDuringTranscoding { get; set; } = false;
+
+    /// <summary>
     /// Gets or sets the Jellyfin media root path as seen by Jellyfin (host or container path).
     /// Used to remap paths when forwarding analysis requests to AI services.
     /// Example: /data/media/movies  (Jellyfin Docker default)
@@ -137,7 +143,7 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets the number of frames sampled per detected scene.
     /// Higher values increase catch-rate for short content but increase analysis time.
     /// </summary>
-    public int SceneSampleCount { get; set; } = 9;
+    public int SceneSampleCount { get; set; } = 15;
 
     /// <summary>
     /// Returns a copy of this configuration with NSFW and violence thresholds derived from
@@ -163,6 +169,7 @@ public class PluginConfiguration : BasePluginConfiguration
             AiServiceBaseUrls = AiServiceBaseUrls,
             AiServiceLoadBalancingMode = AiServiceLoadBalancingMode,
             EnableOsdFeedback = EnableOsdFeedback,
+            AutoPauseQueueDuringTranscoding = AutoPauseQueueDuringTranscoding,
             SceneDetectionMethod = SceneDetectionMethod,
             FfmpegSceneThreshold = FfmpegSceneThreshold,
             SamplingIntervalSeconds = SamplingIntervalSeconds,

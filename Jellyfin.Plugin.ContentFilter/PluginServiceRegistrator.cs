@@ -8,6 +8,7 @@ using MediaBrowser.Controller;
 using MediaBrowser.Controller.Plugins;
 using MediaBrowser.Controller.Session;
 using MediaBrowser.Model.Tasks;
+using Microsoft.Extensions.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -23,6 +24,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
     public void RegisterServices(IServiceCollection serviceCollection, IServerApplicationHost applicationHost)
     {
         serviceCollection.AddSingleton<SegmentStore>();
+        serviceCollection.AddHttpClient();
         serviceCollection.AddHostedService<PluginEntryPoint>();
         serviceCollection.AddSingleton<IScheduledTask, AnalyzeLibraryTask>();
     }
@@ -37,7 +39,9 @@ public class PluginEntryPoint : IHostedService, IDisposable
     private readonly ILoggerFactory _loggerFactory;
     private readonly ISessionManager _sessionManager;
     private readonly SegmentStore _segmentStore;
+    private readonly IHttpClientFactory _httpClientFactory;
     private PlaybackMonitor? _playbackMonitor;
+    private QueueAutoPauseCoordinator? _queueAutoPauseCoordinator;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="PluginEntryPoint"/> class.
@@ -48,11 +52,13 @@ public class PluginEntryPoint : IHostedService, IDisposable
     public PluginEntryPoint(
         ILoggerFactory loggerFactory,
         ISessionManager sessionManager,
-        SegmentStore segmentStore)
+        SegmentStore segmentStore,
+        IHttpClientFactory httpClientFactory)
     {
         _loggerFactory = loggerFactory;
         _sessionManager = sessionManager;
         _segmentStore = segmentStore;
+        _httpClientFactory = httpClientFactory;
         _logger = loggerFactory.CreateLogger<PluginEntryPoint>();
     }
 
@@ -70,7 +76,12 @@ public class PluginEntryPoint : IHostedService, IDisposable
                 _segmentStore,
                 _loggerFactory.CreateLogger<PlaybackMonitor>());
 
-            _logger.LogInformation("PureFin plugin started successfully - SegmentStore and PlaybackMonitor initialized");
+            _queueAutoPauseCoordinator = new QueueAutoPauseCoordinator(
+                _sessionManager,
+                _httpClientFactory,
+                _loggerFactory.CreateLogger<QueueAutoPauseCoordinator>());
+
+            _logger.LogInformation("PureFin plugin started successfully - SegmentStore, PlaybackMonitor, and QueueAutoPauseCoordinator initialized");
         }
         catch (Exception ex)
         {
@@ -87,6 +98,8 @@ public class PluginEntryPoint : IHostedService, IDisposable
         {
             _playbackMonitor?.Dispose();
             _playbackMonitor = null;
+            _queueAutoPauseCoordinator?.Dispose();
+            _queueAutoPauseCoordinator = null;
             _logger.LogInformation("PlaybackMonitor disposed");
         }
         catch (Exception ex)
@@ -102,6 +115,7 @@ public class PluginEntryPoint : IHostedService, IDisposable
     {
         _playbackMonitor?.Dispose();
         _playbackMonitor = null;
+        _queueAutoPauseCoordinator?.Dispose();
+        _queueAutoPauseCoordinator = null;
     }
 }
-

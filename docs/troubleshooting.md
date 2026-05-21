@@ -99,6 +99,41 @@
 
 3. Verify AI services are reachable (see section above).
 
+### Task exits immediately with "Video file not found"
+
+**Symptoms:** Scheduled task starts and completes in seconds; logs show:
+`Scene analyzer endpoint ... returned error: NotFound - {"error":"Video file not found"}`.
+
+**Cause:** Jellyfin path mapping does not match the remote AI host's mounted media path,
+or the movie is not present on the remote host.
+
+**Fix:**
+1. In plugin settings, set:
+   - `JellyfinMediaPath` to Jellyfin's media root (example: `/data/media/movies`)
+   - `AiServiceMediaPath` to AI container media root (example: `/mnt/media`)
+2. Verify the file exists inside scene-analyzer:
+   ```bash
+   docker exec scene-analyzer ls "/mnt/media/<Movie Folder>/"
+   ```
+3. Re-run **Analyze Library for PureFin**.
+
+---
+
+## Profanity detector unexpectedly uses CPU on NVIDIA
+
+**Symptoms:** Profanity logs show:
+- `Whisper GPU transcription failed ... retrying on CPU`
+- `FP16 is not supported on CPU`
+
+**Fix:**
+1. Rebuild profanity service with the current NVIDIA Dockerfile (pinned torch/cu124 + numba/llvmlite):
+   ```bash
+   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build profanity-detector
+   ```
+2. Confirm startup log includes:
+   - `Loading Whisper 'base' model on cuda`
+   - `Whisper model loaded successfully`
+
 ---
 
 ## Queue Is Paused

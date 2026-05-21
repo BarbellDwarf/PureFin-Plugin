@@ -189,7 +189,7 @@
 
                         <div class="inputContainer">
                             <label class="inputLabel" for="sceneSampleCount">
-                                Frame Samples per Scene: <span id="sceneSampleCountValue">9</span>
+                                Frame Samples per Scene: <span id="sceneSampleCountValue">15</span>
                             </label>
                             <input is="emby-input" type="range" id="sceneSampleCount" name="sceneSampleCount" 
                                    min="3" max="15" step="1" value="9" 
@@ -455,7 +455,7 @@
                     var sceneMethod = config.SceneDetectionMethod || 'transnetv2';
                     var ffmpegThreshold = config.FfmpegSceneThreshold || 0.3;
                     var samplingInterval = config.SamplingIntervalSeconds || 30;
-                    var sceneSampleCount = config.SceneSampleCount || 9;
+                    var sceneSampleCount = config.SceneSampleCount || 15;
                     
                     document.getElementById('sceneDetectionMethod').value = sceneMethod;
                     document.getElementById('ffmpegSceneThreshold').value = ffmpegThreshold;

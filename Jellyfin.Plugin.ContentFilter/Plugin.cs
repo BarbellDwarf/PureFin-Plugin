@@ -57,7 +57,11 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             new PluginPageInfo
             {
                 Name = "Segments",
-                EmbeddedResourcePath = string.Format("{0}.Web.segments.html", GetType().Namespace)
+                DisplayName = "PureFin Segments",
+                EmbeddedResourcePath = string.Format("{0}.Web.segments.html", GetType().Namespace),
+                EnableInMainMenu = true,
+                MenuSection = "plugins",
+                MenuIcon = "toc"
             }
         };
     }
@@ -69,4 +73,3 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         _logger.LogInformation("Plugin configuration updated - threshold changes will apply immediately to active playback sessions");
     }
 }
-

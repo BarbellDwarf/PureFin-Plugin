@@ -108,6 +108,16 @@ After installation, configure the plugin:
 5. Go to **Dashboard → Scheduled Tasks** and run **Analyze Library for PureFin** for initial analysis.
 6. Optional: use **Analysis Queue Controls (Admin)** in the plugin page to pause/resume queue processing across all configured hosts.
 
+### Remote AI host (different machine) checklist
+
+When `AiServiceBaseUrl` points to a remote host (for example `http://192.168.x.x:3002`):
+
+1. Set **JellyfinMediaPath** to the path Jellyfin sees (example: `/data/media/movies`).
+2. Set **AiServiceMediaPath** to the path remote AI containers see (example: `/mnt/media`).
+3. Ensure the same media files are present and readable on that remote path.
+   If files are missing on the remote host, PureFin tasks may complete immediately with:
+   `Video file not found`.
+
 ---
 
 ## See Also

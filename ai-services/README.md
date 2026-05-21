@@ -131,6 +131,9 @@ volumes:
 1. Check that media path is mounted correctly in `docker-compose.yml`
 2. Verify the path matches your Jellyfin media library
 3. Ensure Jellyfin sends paths that match the mounted directory
+4. In multi-host deployments, ensure **the same movie files exist on the remote host path**.
+   If Jellyfin sends `/data/media/movies/...`, the remote scene-analyzer must resolve that
+   to a real file via plugin mapping (for example `/mnt/media/...`).
 
 **Example**:
 - Jellyfin sees: `/mnt/Media/Movie.mkv`
@@ -166,6 +169,24 @@ Use this as an operational baseline for full-library analysis:
 | Newer mid/high GPU (RTX 30/40, RX 6/7/9xxx, Arc A7xx+) | ~2.5x - 8x real-time |
 
 Interpretation example: a 100-minute movie at 2x takes ~50 minutes to complete.
+
+Observed in production testing (same movie, TransNetV2 scene detection phase):
+- AMD WSL ROCm path: ~125 fps (`154761 frames in ~20m39s`)
+- RTX 3070 CUDA path: ~3100 fps (`154761 frames in ~49s`)
+
+The large gap is expected when CUDA decode/inference are fully active versus WSL ROCm paths.
+
+### Profanity detector falls back to CPU on NVIDIA
+
+If logs show:
+- `Whisper GPU transcription failed ... retrying on CPU`
+- `FP16 is not supported on CPU`
+
+Use the current `Dockerfile.nvidia` (pinned torch/cu124 + numba/llvmlite) and rebuild:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build profanity-detector
+```
 
 ### Queue paused / analysis not progressing
 
