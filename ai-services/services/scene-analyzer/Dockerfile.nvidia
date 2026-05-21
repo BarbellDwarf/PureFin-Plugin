@@ -1,0 +1,45 @@
+# NVIDIA GPU image for scene-analyzer.
+# Uses the official CUDA runtime base so that FFmpeg's NVDEC hwaccel works
+# without extra library installs, and PyTorch is installed from the CUDA 12.4 index.
+FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV CUBLAS_WORKSPACE_CONFIG=:4096:8
+# Tell FFmpeg to prefer NVDEC hardware decode
+ENV FFMPEG_HWACCEL=cuda
+
+WORKDIR /app
+
+# System dependencies + FFmpeg (Ubuntu 22.04 ships FFmpeg 4.4; sufficient for NVDEC)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 \
+    python3-pip \
+    ffmpeg \
+    libgl1 \
+    libglib2.0-0 \
+    libgomp1 \
+    procps \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Alias python3 → python for convenience
+RUN ln -sf /usr/bin/python3 /usr/bin/python
+
+# Install Python dependencies.
+# torch / torchvision are installed from the CUDA 12.4 whl index so they
+# link against the CUDA runtime that ships in this base image.
+COPY requirements.txt .
+RUN grep -viE '^(torch|torchvision)([<>=!~].*)?$' requirements.txt > /tmp/req.no-torch.txt && \
+    pip3 install --no-cache-dir -r /tmp/req.no-torch.txt && \
+    pip3 install --no-cache-dir \
+        --index-url https://download.pytorch.org/whl/cu124 \
+        torch==2.5.1 torchvision==0.20.1 && \
+    rm /tmp/req.no-torch.txt
+
+COPY . .
+
+RUN mkdir -p /tmp/processing
+
+EXPOSE 3000
+
+CMD ["python3", "app.py"]

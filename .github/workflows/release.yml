@@ -1,0 +1,92 @@
+name: Publish Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*.*'
+
+concurrency:
+  group: gh-pages-manifest
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install jprm
+        run: pip install jprm
+
+      - name: Get version from tag
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+
+      - name: Build plugin package
+        run: |
+          jprm plugin build --version ${{ steps.get_version.outputs.VERSION }} .
+
+      - name: Generate checksums
+        run: |
+          for f in *.zip; do
+            md5sum "$f" | awk '{print $1}' > "${f}.md5"
+            sha256sum "$f" | awk '{print $1}' > "${f}.sha256"
+          done
+
+      - name: Read checksum for manifest
+        id: checksum
+        run: |
+          MD5=$(cat *.zip.md5 | head -1)
+          echo "MD5=${MD5}" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            *.zip
+            *.zip.md5
+            *.zip.sha256
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+
+      - name: Checkout gh-pages
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: gh-pages
+          fetch-depth: 0
+
+      - name: Update repository manifest
+        run: |
+          mkdir -p gh-pages
+          python3 .github/scripts/generate_manifest.py \
+            --version "${{ steps.get_version.outputs.VERSION }}" \
+            --tag "${{ github.ref_name }}" \
+            --repo "${{ github.repository }}" \
+            --output gh-pages/repository.json \
+            --checksum "${{ steps.checksum.outputs.MD5 }}"
+
+      - name: Commit updated manifest
+        run: |
+          cd gh-pages
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add repository.json
+          git diff --staged --quiet || git commit -m "Update repository.json for ${{ github.ref_name }}"
+          git pull --rebase origin gh-pages
+          git push

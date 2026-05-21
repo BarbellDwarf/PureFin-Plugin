@@ -1,0 +1,141 @@
+# AMD GPU ROCm override for PureFin AI services
+#
+# Usage (MUST be run from Ubuntu WSL, NOT Windows PowerShell):
+#   docker compose -f docker-compose.yml -f docker-compose.amd.yml up --build
+#
+# Requirements:
+#   - AMD Adrenalin 26.2.2+ driver with ROCm 7.2.1+
+#   - ROCm 7.2.1 installed in Ubuntu WSL (sudo apt install rocm)
+#   - /dev/dxg present in Ubuntu WSL (verify: ls /dev/dxg)
+#   - /opt/rocm-7.2.1/lib/librocdxg.so present (verify: ls /opt/rocm-7.2.1/lib/librocdxg.so)
+#   - /usr/lib/wsl/lib/libdxcore.so present (verify: ls /usr/lib/wsl/lib/libdxcore.so)
+#
+# GPU path: ROCDXG (AMD Adrenalin 26.x WSL path via /dev/dxg and DXCore).
+# Does NOT use /dev/kfd — that device is not available in Docker Desktop WSL2 environments.
+#
+# This file only overrides keys that differ from docker-compose.yml.
+# All other service configuration (ports, volumes, healthchecks) is inherited.
+
+# Resolve ROCm library path via env var to allow overriding for different ROCm versions.
+# Override: ROCM_LIB_PATH=/opt/rocm-7.3.0/lib docker compose -f ... up
+x-rocm-env: &rocm-env
+  USE_GPU: "1"
+  USE_AMF: "1"
+  # Tell HSA runtime to detect GPU via /dev/dxg (ROCDXG path, required for WSL2)
+  HSA_ENABLE_DXG_DETECTION: "1"
+  # Disable rocprofiler crash on WSL2 via preloaded no-op stub (compiled in Dockerfile)
+  LD_PRELOAD: "/usr/lib/librocprofiler-wsl-stub.so"
+  # Make the mounted DXCore/ROCDXG bridge libs discoverable at runtime
+  LD_LIBRARY_PATH: "/usr/lib:${LD_LIBRARY_PATH:-}"
+  # Disable rocprofiler — it requires /sys/class/kfd sysfs topology which is absent in WSL2.
+  # HSA can still detect the GPU via ROCDXG (/dev/dxg); only profiling/tracing is disabled.
+  HSA_TOOLS_LIB: ""
+  ROCPROFILER_REGISTER_FORCE_INTERCEPT: "0"
+  # FFmpeg frame decode runs on CPU in WSL2: /dev/dri is not exposed via Docker Desktop
+  # on WSL2, so VAAPI/AMF are unavailable to FFmpeg.  PyTorch still uses the GPU via ROCm/HIP.
+  # On native AMD Linux (not WSL2) change this to 'vaapi' and mount /dev/dri/renderD128.
+  FFMPEG_HWACCEL: "none"
+  # ROCm GFX version override — uncomment only if your GPU fails ROCm version checks.
+  # gfx1200 (RDNA 4, RX 9000 series) does NOT need an override.
+  # RDNA 2/3 (RX 6000/7000): try 10.3.0
+  # RDNA 1 (RX 5000):         try 9.0.0
+  # Vega 10/20:                try 9.0.6
+  #HSA_OVERRIDE_GFX_VERSION: "10.3.0"
+  #ROC_ENABLE_PRE_VEGA: "1"
+
+x-rocm-devices: &rocm-devices
+  - /dev/dxg
+
+x-rocm-volumes: &rocm-volumes
+  # Mount DXCore bridge (from Windows/WSL) and ROCDXG bridge (from WSL ROCm install)
+  # into standard /usr/lib so the HSA runtime and LD_LIBRARY_PATH can find them.
+  - /usr/lib/wsl/lib/libdxcore.so:/usr/lib/libdxcore.so:ro
+  - ${ROCM_LIB_PATH:-/opt/rocm-7.2.1/lib}/librocdxg.so:/usr/lib/librocdxg.so:ro
+
+x-rocm-security: &rocm-security
+  cap_add:
+    - SYS_PTRACE
+  security_opt:
+    - seccomp=unconfined
+  ipc: host
+  shm_size: 8g
+
+services:
+  scene-analyzer:
+    build:
+      context: ./services/scene-analyzer
+      dockerfile: Dockerfile.amd
+    environment:
+      <<: *rocm-env
+    devices: *rocm-devices
+    volumes: *rocm-volumes
+    cap_add:
+      - SYS_PTRACE
+    security_opt:
+      - seccomp=unconfined
+    ipc: host
+    shm_size: 8g
+
+  violence-detector:
+    build:
+      context: ./services/violence-detector
+      dockerfile: Dockerfile.amd
+    environment:
+      <<: *rocm-env
+    devices: *rocm-devices
+    volumes: *rocm-volumes
+    cap_add:
+      - SYS_PTRACE
+    security_opt:
+      - seccomp=unconfined
+    ipc: host
+    shm_size: 8g
+
+  content-classifier:
+    profiles: ["legacy"]
+    build:
+      context: ./services/content-classifier
+      dockerfile: Dockerfile.amd
+    environment:
+      <<: *rocm-env
+    devices: *rocm-devices
+    volumes: *rocm-volumes
+    cap_add:
+      - SYS_PTRACE
+    security_opt:
+      - seccomp=unconfined
+    ipc: host
+    shm_size: 8g
+
+  profanity-detector:
+    build:
+      context: ./services/profanity-detector
+      dockerfile: Dockerfile.amd
+    environment:
+      <<: *rocm-env
+      USE_GPU: "1"
+      # This image does not ship the WSL rocprofiler stub; avoid preload warning noise.
+      LD_PRELOAD: ""
+    devices: *rocm-devices
+    volumes: *rocm-volumes
+    cap_add:
+      - SYS_PTRACE
+    security_opt:
+      - seccomp=unconfined
+    ipc: host
+    shm_size: 8g
+
+  nsfw-detector:
+    build:
+      context: ./services/nsfw-detector
+      dockerfile: Dockerfile.amd
+    environment:
+      <<: *rocm-env
+    devices: *rocm-devices
+    volumes: *rocm-volumes
+    cap_add:
+      - SYS_PTRACE
+    security_opt:
+      - seccomp=unconfined
+    ipc: host
+    shm_size: 8g

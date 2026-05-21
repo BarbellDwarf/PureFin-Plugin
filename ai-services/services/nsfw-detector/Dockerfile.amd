@@ -1,0 +1,37 @@
+FROM rocm/pytorch:latest
+
+ENV CUBLAS_WORKSPACE_CONFIG=:4096:8
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgl1 \
+    libglib2.0-0 \
+    libgomp1 \
+    procps \
+    curl \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN grep -viE '^(torch|torchvision)([<>=!~].*)?$' requirements.txt > /tmp/requirements.no-torch.txt && \
+    pip install --no-cache-dir -r /tmp/requirements.no-torch.txt && \
+    rm -f /tmp/requirements.no-torch.txt
+
+RUN printf '#include <stdint.h>\ntypedef int rocprofiler_status_t;\n__attribute__((visibility("default")))\nrocprofiler_status_t rocprofiler_set_api_table(const char*l,uint64_t a,uint64_t b,void**c,uint64_t d,uint64_t*e){return 0;}\n' \
+      > /tmp/rp_stub.c && \
+    gcc -shared -fPIC -o /usr/lib/librocprofiler-wsl-stub.so /tmp/rp_stub.c && \
+    rm /tmp/rp_stub.c && \
+    apt-get purge -y gcc > /dev/null 2>&1 && apt-get autoremove -y > /dev/null 2>&1 && rm -rf /var/lib/apt/lists/*
+
+COPY . .
+
+RUN mkdir -p /app/models /tmp/processing
+
+RUN echo '#!/bin/bash\n\
+echo "Starting NSFW detector service..."\n\
+echo "Model: ${NSFW_MODEL_ID:-AdamCodd/vit-base-nsfw-detector}"\n\
+exec python app.py' > /app/start.sh && chmod +x /app/start.sh
+
+EXPOSE 3000
+CMD ["/app/start.sh"]

@@ -1,0 +1,43 @@
+FROM rocm/pytorch:latest
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV CUBLAS_WORKSPACE_CONFIG=:4096:8
+
+WORKDIR /app
+
+# Install system dependencies (torch/torchvision already in rocm/pytorch base)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    libgl1 \
+    libglib2.0-0 \
+    libgomp1 \
+    procps \
+    curl \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements and install Python packages
+# Keep torch/torchvision from rocm/pytorch base image (do not reinstall from PyPI).
+COPY requirements.txt .
+RUN grep -viE '^(torch|torchvision)([<>=!~].*)?$' requirements.txt > /tmp/requirements.no-torch.txt && \
+    pip install --no-cache-dir -r /tmp/requirements.no-torch.txt && \
+    rm -f /tmp/requirements.no-torch.txt
+
+# On WSL2, librocprofiler-sdk.so crashes at init due to missing /sys/class/kfd sysfs.
+# Compile LD_PRELOAD stub that intercepts rocprofiler_set_api_table as a no-op.
+# GPU inference unaffected; only profiling disabled.
+RUN printf '#include <stdint.h>\ntypedef int rocprofiler_status_t;\n__attribute__((visibility("default")))\nrocprofiler_status_t rocprofiler_set_api_table(const char*l,uint64_t a,uint64_t b,void**c,uint64_t d,uint64_t*e){return 0;}\n' \
+      > /tmp/rp_stub.c && \
+    gcc -shared -fPIC -o /usr/lib/librocprofiler-wsl-stub.so /tmp/rp_stub.c && \
+    rm /tmp/rp_stub.c && \
+    apt-get purge -y gcc > /dev/null 2>&1 && apt-get autoremove -y > /dev/null 2>&1 && rm -rf /var/lib/apt/lists/*
+
+# Copy application code
+COPY . .
+
+# Create necessary directories
+RUN mkdir -p /tmp/processing
+
+EXPOSE 3000
+
+CMD ["python3", "app.py"]

@@ -1,0 +1,494 @@
+<?xml version="1.0"?>
+<doc>
+    <assembly>
+        <name>Jellyfin.Plugin.ContentFilter</name>
+    </assembly>
+    <members>
+        <member name="T:Jellyfin.Plugin.ContentFilter.Configuration.PluginConfiguration">
+            <summary>
+            Plugin configuration.
+            </summary>
+        </member>
+        <member name="P:Jellyfin.Plugin.ContentFilter.Configuration.PluginConfiguration.EnableNudity">
+            <summary>
+            Gets or sets a value indicating whether nudity filtering is enabled.
+            </summary>
+        </member>
+        <member name="P:Jellyfin.Plugin.ContentFilter.Configuration.PluginConfiguration.EnableImmodesty">
+            <summary>
+            Gets or sets a value indicating whether immodesty filtering is enabled.
+            </summary>
+        </member>
+        <member name="P:Jellyfin.Plugin.ContentFilter.Configuration.PluginConfiguration.EnableViolence">
+            <summary>
+            Gets or sets a value indicating whether violence filtering is enabled.
+            </summary>
+        </member>
+        <member name="P:Jellyfin.Plugin.ContentFilter.Configuration.PluginConfiguration.EnableProfanity">
+            <summary>
+            Gets or sets a value indicating whether profanity filtering is enabled.
+            </summary>
+        </member>
+        <member name="P:Jellyfin.Plugin.ContentFilter.Configuration.PluginConfiguration.NudityThreshold">
+            <summary>
+            Gets or sets the confidence threshold for nudity detection (0.0 to 1.0).
+            Higher values = more strict filtering, only high-confidence detections.
+            </summary>
+        </member>
+        <member name="P:Jellyfin.Plugin.ContentFilter.Configuration.PluginConfiguration.ImmodestyThreshold">
+            <summary>
+            Gets or sets the confidence threshold for immodesty detection (0.0 to 1.0).
+            Higher values = more strict filtering, only high-confidence detections.
+            Revealing-clothing and partial-skin scenes typically score 0.05–0.40;
+            lower this threshold to catch more borderline content.
+            </summary>
+        </member>
+        <member name="P:Jellyfin.Plugin.ContentFilter.Configuration.PluginConfiguration.ViolenceThreshold">
+            <summary>
+            Gets or sets the confidence threshold for violence detection (0.0 to 1.0).
+            Higher values = more strict filtering, only high-confidence detections.
+            NOTE: The violence classifier outputs a baseline of ~0.50 for all action/war
+            movie content. Thresholds below 0.65 will false-positive on virtually every
+            scene in action films. Set to 0.65+ to catch only truly explicit violence.
+            </summary>
+        </member>
+        <member name="P:Jellyfin.Plugin.ContentFilter.Configuration.PluginConfiguration.ProfanityThreshold">
+            <summary>
+            Gets or sets the confidence threshold for profanity detection (0.0 to 1.0).
+            Higher values = more strict filtering, only high-confidence detections.
+            </summary>
+        </member>
+        <member name="P:Jellyfin.Plugin.ContentFilter.Configuration.PluginConfiguration.Sensitivity">
+            <summary>
+            Gets or sets the sensitivity level (strict, moderate, permissive).
+            </summary>
+        </member>
+        <member name="P:Jellyfin.Plugin.ContentFilter.Configuration.PluginConfiguration.SegmentDirectory">
+            <summary>
+            Gets or sets the segment directory path.
+            </summary>
+        </member>
+        <member name="P:Jellyfin.Plugin.ContentFilter.Configuration.PluginConfiguration.PreferCommunityData">
+            <summary>
+            Gets or sets a value indicating whether to prefer community data over AI data.
+            </summary>
+        </member>
+        <member name="P:Jellyfin.Plugin.ContentFilter.Configuration.PluginConfiguration.AiServiceBaseUrl">
+            <summary>
+            Gets or sets the AI service base URL.
+            </summary>
+        </member>
+        <member name="P:Jellyfin.Plugin.ContentFilter.Configuration.PluginConfiguration.EnableOsdFeedback">
+            <summary>
+            Gets or sets a value indicating whether to enable OSD feedback during filtering.
+            </summary>
+        </member>
+        <member name="P:Jellyfin.Plugin.ContentFilter.Configuration.PluginConfiguration.JellyfinMediaPath">
+            <summary>
+            Gets or sets the Jellyfin media root path as seen by Jellyfin (host or container path).
+            Used to remap paths when forwarding analysis requests to AI services.
+            Example: /data/media/movies  (Jellyfin Docker default)
+            Leave empty to pass paths through unchanged.
+            </summary>
+        </member>
+        <member name="P:Jellyfin.Plugin.ContentFilter.Configuration.PluginConfiguration.AiServiceMediaPath">
+            <summary>
+            Gets or sets the media root path as seen by the AI service containers.
+            Example: /mnt/media
+            Only used when JellyfinMediaPath is also set.
+            </summary>
+        </member>
+        <member name="P:Jellyfin.Plugin.ContentFilter.Configuration.PluginConfiguration.NudityConfirmationMinImmodesty">
+            <summary>
+            Gets or sets a minimum immodesty score required to confirm a nudity detection.
+            When greater than 0.0, nudity-only detections (high nudity but near-zero immodesty)
+            are rejected as false positives. Recommended: 0.05.
+            Set to 0.0 to disable confirmation and flag on nudity score alone.
+            </summary>
+        </member>
+        <member name="P:Jellyfin.Plugin.ContentFilter.Configuration.PluginConfiguration.SceneDetectionMethod">
+            <summary>
+            Gets or sets the scene detection method (ffmpeg, sampling, transnetv2).
+            </summary>
+        </member>
+        <member name="P:Jellyfin.Plugin.ContentFilter.Configuration.PluginConfiguration.FfmpegSceneThreshold">
+            <summary>
+            Gets or sets the FFmpeg scene detection threshold (0.0 to 1.0).
+            Used when SceneDetectionMethod is "ffmpeg".
+            </summary>
+        </member>
+        <member name="P:Jellyfin.Plugin.ContentFilter.Configuration.PluginConfiguration.SamplingIntervalSeconds">
+            <summary>
+            Gets or sets the sampling interval in seconds.
+            Used when SceneDetectionMethod is "sampling".
+            </summary>
+        </member>
+        <member name="P:Jellyfin.Plugin.ContentFilter.Configuration.PluginConfiguration.SceneSampleCount">
+            <summary>
+            Gets or sets the number of frames sampled per detected scene.
+            Higher values increase catch-rate for short content but increase analysis time.
+            </summary>
+        </member>
+        <member name="M:Jellyfin.Plugin.ContentFilter.Configuration.PluginConfiguration.WithSensitivityThresholds">
+            <summary>
+            Returns a copy of this configuration with NSFW and violence thresholds derived from
+            the <see cref="P:Jellyfin.Plugin.ContentFilter.Configuration.PluginConfiguration.Sensitivity"/> preset, overriding the individual slider values.
+            </summary>
+        </member>
+        <member name="T:Jellyfin.Plugin.ContentFilter.Configuration.SensitivityThresholds">
+            <summary>
+            Maps the Sensitivity preset string to concrete score thresholds per content category.
+            Lower thresholds = more aggressive filtering (more content is caught).
+            Immodesty uses a lower threshold than nudity because revealing-clothing scenes
+            score in the 0.15–0.40 range on the NSFW model, while explicit nudity scores 0.60+.
+            </summary>
+        </member>
+        <member name="M:Jellyfin.Plugin.ContentFilter.Configuration.SensitivityThresholds.GetThresholds(System.String)">
+            <summary>
+            Returns (NudityThreshold, ImmodestyThreshold, ViolenceThreshold) for the given sensitivity preset.
+            <list type="bullet">
+              <item><term>strict</term><description>0.25 / 0.05 / 0.65 — catches most content including borderline reveals</description></item>
+              <item><term>moderate</term><description>0.50 / 0.10 / 0.70 — balanced (default)</description></item>
+              <item><term>permissive</term><description>0.75 / 0.30 / 0.80 — only very-high-confidence content</description></item>
+            </list>
+            Violence thresholds are set high (0.65+) because the violence classifier outputs
+            a noise floor of ~0.50 for all action/war content; lower values cause false positives
+            on virtually every scene in action films.
+            </summary>
+        </member>
+        <member name="T:Jellyfin.Plugin.ContentFilter.Controllers.PureFinSegmentsController">
+            <summary>
+            Admin-only endpoints for inspecting PureFin segment data.
+            </summary>
+        </member>
+        <member name="M:Jellyfin.Plugin.ContentFilter.Controllers.PureFinSegmentsController.#ctor(Jellyfin.Plugin.ContentFilter.Services.SegmentStore,MediaBrowser.Controller.Library.IUserManager,MediaBrowser.Controller.Library.ILibraryManager,System.Net.Http.IHttpClientFactory,Microsoft.Extensions.Logging.ILogger{Jellyfin.Plugin.ContentFilter.Controllers.PureFinSegmentsController})">
+            <summary>
+            Initializes a new instance of the <see cref="T:Jellyfin.Plugin.ContentFilter.Controllers.PureFinSegmentsController"/> class.
+            </summary>
+            <param name="segmentStore">Segment store.</param>
+            <param name="userManager">User manager.</param>
+            <param name="libraryManager">Library manager.</param>
+            <param name="httpClientFactory">HTTP client factory.</param>
+            <param name="logger">Logger.</param>
+        </member>
+        <member name="M:Jellyfin.Plugin.ContentFilter.Controllers.PureFinSegmentsController.GetSegments(System.Guid)">
+            <summary>
+            Gets PureFin segment data for a specific media item.
+            </summary>
+            <param name="itemId">The Jellyfin item ID.</param>
+            <returns>Segment data for the media item.</returns>
+        </member>
+        <member name="M:Jellyfin.Plugin.ContentFilter.Controllers.PureFinSegmentsController.GetQueueStatus">
+            <summary>
+            Gets analysis queue status from the AI orchestrator.
+            </summary>
+            <returns>Queue status.</returns>
+        </member>
+        <member name="M:Jellyfin.Plugin.ContentFilter.Controllers.PureFinSegmentsController.PauseQueue(Jellyfin.Plugin.ContentFilter.Controllers.PureFinSegmentsController.QueuePauseRequest)">
+            <summary>
+            Pauses analysis queue processing.
+            </summary>
+            <param name="request">Optional pause reason.</param>
+            <returns>Queue status after pause.</returns>
+        </member>
+        <member name="M:Jellyfin.Plugin.ContentFilter.Controllers.PureFinSegmentsController.ResumeQueue">
+            <summary>
+            Resumes analysis queue processing.
+            </summary>
+            <returns>Queue status after resume.</returns>
+        </member>
+        <member name="T:Jellyfin.Plugin.ContentFilter.Controllers.PureFinSegmentsController.QueuePauseRequest">
+            <summary>
+            Request payload for pausing queue processing.
+            </summary>
+        </member>
+        <member name="P:Jellyfin.Plugin.ContentFilter.Controllers.PureFinSegmentsController.QueuePauseRequest.Reason">
+            <summary>
+            Gets or sets optional pause reason.
+            </summary>
+        </member>
+        <member name="T:Jellyfin.Plugin.ContentFilter.Models.Segment">
+            <summary>
+            Represents a content filter segment with timing and category information.
+            </summary>
+        </member>
+        <member name="P:Jellyfin.Plugin.ContentFilter.Models.Segment.Start">
+            <summary>
+            Gets the start time in seconds.
+            </summary>
+        </member>
+        <member name="P:Jellyfin.Plugin.ContentFilter.Models.Segment.End">
+            <summary>
+            Gets the end time in seconds.
+            </summary>
+        </member>
+        <member name="P:Jellyfin.Plugin.ContentFilter.Models.Segment.RawScores">
+            <summary>
+            Gets the raw AI confidence scores for all detected categories (0.0-1.0).
+            These are the original AI model outputs before any threshold filtering.
+            </summary>
+        </member>
+        <member name="P:Jellyfin.Plugin.ContentFilter.Models.Segment.Categories">
+            <summary>
+            Gets the content categories (e.g., nudity, violence, profanity) that exceed current thresholds.
+            This is computed dynamically based on current configuration settings.
+            </summary>
+        </member>
+        <member name="P:Jellyfin.Plugin.ContentFilter.Models.Segment.Action">
+            <summary>
+            Gets the action to take (skip, mute, blur).
+            </summary>
+        </member>
+        <member name="P:Jellyfin.Plugin.ContentFilter.Models.Segment.Confidence">
+            <summary>
+            Gets the highest confidence score from RawScores (0.0-1.0).
+            </summary>
+        </member>
+        <member name="P:Jellyfin.Plugin.ContentFilter.Models.Segment.Source">
+            <summary>
+            Gets the source of the segment (ai, community, manual).
+            </summary>
+        </member>
+        <member name="P:Jellyfin.Plugin.ContentFilter.Models.Segment.Duration">
+            <summary>
+            Gets the duration of the segment in seconds.
+            </summary>
+        </member>
+        <member name="M:Jellyfin.Plugin.ContentFilter.Models.Segment.ShouldFilter(Jellyfin.Plugin.ContentFilter.Configuration.PluginConfiguration)">
+            <summary>
+            Determines if this segment should be filtered based on current configuration thresholds.
+            </summary>
+            <param name="config">Current plugin configuration with threshold settings.</param>
+            <returns>True if any category exceeds its threshold and is enabled.</returns>
+        </member>
+        <member name="M:Jellyfin.Plugin.ContentFilter.Models.Segment.GetActiveCategories(Jellyfin.Plugin.ContentFilter.Configuration.PluginConfiguration)">
+            <summary>
+            Gets the categories that exceed current thresholds (for display/logging).
+            </summary>
+            <param name="config">Current plugin configuration with threshold settings.</param>
+            <returns>Array of category names that exceed their thresholds.</returns>
+        </member>
+        <member name="T:Jellyfin.Plugin.ContentFilter.Models.SegmentData">
+            <summary>
+            Represents segment data for a media item.
+            </summary>
+        </member>
+        <member name="P:Jellyfin.Plugin.ContentFilter.Models.SegmentData.MediaId">
+            <summary>
+            Gets the media item ID.
+            </summary>
+        </member>
+        <member name="P:Jellyfin.Plugin.ContentFilter.Models.SegmentData.Version">
+            <summary>
+            Gets the version number.
+            </summary>
+        </member>
+        <member name="P:Jellyfin.Plugin.ContentFilter.Models.SegmentData.Segments">
+            <summary>
+            Gets the segments.
+            </summary>
+        </member>
+        <member name="P:Jellyfin.Plugin.ContentFilter.Models.SegmentData.CreatedAt">
+            <summary>
+            Gets the timestamp when this data was created.
+            </summary>
+        </member>
+        <member name="P:Jellyfin.Plugin.ContentFilter.Models.SegmentData.FileHash">
+            <summary>
+            Gets the media file hash for change detection.
+            </summary>
+        </member>
+        <member name="T:Jellyfin.Plugin.ContentFilter.Plugin">
+            <summary>
+            The main plugin class for PureFin.
+            </summary>
+        </member>
+        <member name="M:Jellyfin.Plugin.ContentFilter.Plugin.#ctor(MediaBrowser.Common.Configuration.IApplicationPaths,MediaBrowser.Model.Serialization.IXmlSerializer,Microsoft.Extensions.Logging.ILoggerFactory)">
+            <summary>
+            Initializes a new instance of the <see cref="T:Jellyfin.Plugin.ContentFilter.Plugin"/> class.
+            </summary>
+            <param name="applicationPaths">Instance of the <see cref="T:MediaBrowser.Common.Configuration.IApplicationPaths"/> interface.</param>
+            <param name="xmlSerializer">Instance of the <see cref="T:MediaBrowser.Model.Serialization.IXmlSerializer"/> interface.</param>
+            <param name="loggerFactory">Logger factory.</param>
+        </member>
+        <member name="P:Jellyfin.Plugin.ContentFilter.Plugin.Name">
+            <inheritdoc />
+        </member>
+        <member name="P:Jellyfin.Plugin.ContentFilter.Plugin.Id">
+            <inheritdoc />
+        </member>
+        <member name="P:Jellyfin.Plugin.ContentFilter.Plugin.Instance">
+            <summary>
+            Gets the current plugin instance.
+            </summary>
+        </member>
+        <member name="M:Jellyfin.Plugin.ContentFilter.Plugin.GetPages">
+            <inheritdoc />
+        </member>
+        <member name="M:Jellyfin.Plugin.ContentFilter.Plugin.UpdateConfiguration(MediaBrowser.Model.Plugins.BasePluginConfiguration)">
+            <inheritdoc />
+        </member>
+        <member name="T:Jellyfin.Plugin.ContentFilter.PluginServiceRegistrator">
+            <summary>
+            Registers PureFin plugin services with Jellyfin's DI container.
+            </summary>
+        </member>
+        <member name="M:Jellyfin.Plugin.ContentFilter.PluginServiceRegistrator.RegisterServices(Microsoft.Extensions.DependencyInjection.IServiceCollection,MediaBrowser.Controller.IServerApplicationHost)">
+            <inheritdoc />
+        </member>
+        <member name="T:Jellyfin.Plugin.ContentFilter.PluginEntryPoint">
+            <summary>
+            Hosted service for PureFin plugin initialization.
+            </summary>
+        </member>
+        <member name="M:Jellyfin.Plugin.ContentFilter.PluginEntryPoint.#ctor(Microsoft.Extensions.Logging.ILoggerFactory,MediaBrowser.Controller.Session.ISessionManager,Jellyfin.Plugin.ContentFilter.Services.SegmentStore)">
+            <summary>
+            Initializes a new instance of the <see cref="T:Jellyfin.Plugin.ContentFilter.PluginEntryPoint"/> class.
+            </summary>
+            <param name="loggerFactory">The logger factory.</param>
+            <param name="sessionManager">The session manager.</param>
+            <param name="segmentStore">The segment store.</param>
+        </member>
+        <member name="M:Jellyfin.Plugin.ContentFilter.PluginEntryPoint.StartAsync(System.Threading.CancellationToken)">
+            <inheritdoc />
+        </member>
+        <member name="M:Jellyfin.Plugin.ContentFilter.PluginEntryPoint.StopAsync(System.Threading.CancellationToken)">
+            <inheritdoc />
+        </member>
+        <member name="M:Jellyfin.Plugin.ContentFilter.PluginEntryPoint.Dispose">
+            <inheritdoc />
+        </member>
+        <member name="T:Jellyfin.Plugin.ContentFilter.Services.PlaybackMonitor">
+            <summary>
+            Monitors playback sessions and applies content filtering.
+            </summary>
+        </member>
+        <member name="M:Jellyfin.Plugin.ContentFilter.Services.PlaybackMonitor.#ctor(MediaBrowser.Controller.Session.ISessionManager,Jellyfin.Plugin.ContentFilter.Services.SegmentStore,Microsoft.Extensions.Logging.ILogger{Jellyfin.Plugin.ContentFilter.Services.PlaybackMonitor})">
+            <summary>
+            Initializes a new instance of the <see cref="T:Jellyfin.Plugin.ContentFilter.Services.PlaybackMonitor"/> class.
+            </summary>
+            <param name="sessionManager">Session manager.</param>
+            <param name="segmentStore">Segment store.</param>
+            <param name="logger">Logger.</param>
+        </member>
+        <member name="M:Jellyfin.Plugin.ContentFilter.Services.PlaybackMonitor.Dispose">
+            <inheritdoc />
+        </member>
+        <member name="T:Jellyfin.Plugin.ContentFilter.Services.SegmentStore">
+            <summary>
+            In-memory store for segment data with file system persistence.
+            </summary>
+        </member>
+        <member name="M:Jellyfin.Plugin.ContentFilter.Services.SegmentStore.#ctor(Microsoft.Extensions.Logging.ILogger{Jellyfin.Plugin.ContentFilter.Services.SegmentStore})">
+            <summary>
+            Initializes a new instance of the <see cref="T:Jellyfin.Plugin.ContentFilter.Services.SegmentStore"/> class.
+            </summary>
+            <param name="logger">Logger instance.</param>
+        </member>
+        <member name="M:Jellyfin.Plugin.ContentFilter.Services.SegmentStore.Get(System.String)">
+            <summary>
+            Gets segment data for a media item.
+            </summary>
+            <param name="mediaId">Media item ID.</param>
+            <returns>Segment data if found, null otherwise.</returns>
+        </member>
+        <member name="M:Jellyfin.Plugin.ContentFilter.Services.SegmentStore.GetActiveSegments(System.String,System.Double)">
+            <summary>
+            Gets active segments at a specific timestamp.
+            </summary>
+            <param name="mediaId">Media item ID.</param>
+            <param name="timestamp">Current playback timestamp in seconds.</param>
+            <returns>List of active segments.</returns>
+        </member>
+        <member name="M:Jellyfin.Plugin.ContentFilter.Services.SegmentStore.GetSegmentsOverlappingRange(System.String,System.Double,System.Double)">
+            <summary>
+            Gets segments that overlap a time range.
+            </summary>
+            <param name="mediaId">Media item ID.</param>
+            <param name="rangeStart">Range start in seconds.</param>
+            <param name="rangeEnd">Range end in seconds.</param>
+            <returns>List of overlapping segments.</returns>
+        </member>
+        <member name="M:Jellyfin.Plugin.ContentFilter.Services.SegmentStore.GetNextBoundary(System.String,System.Double)">
+            <summary>
+            Gets the next segment boundary after a timestamp.
+            </summary>
+            <param name="mediaId">Media item ID.</param>
+            <param name="timestamp">Current playback timestamp in seconds.</param>
+            <returns>Next segment start time, or null if no upcoming segments.</returns>
+        </member>
+        <member name="M:Jellyfin.Plugin.ContentFilter.Services.SegmentStore.Put(System.String,Jellyfin.Plugin.ContentFilter.Models.SegmentData)">
+            <summary>
+            Stores segment data for a media item.
+            </summary>
+            <param name="mediaId">Media item ID.</param>
+            <param name="data">Segment data.</param>
+            <returns>A <see cref="T:System.Threading.Tasks.Task"/> representing the asynchronous operation.</returns>
+        </member>
+        <member name="M:Jellyfin.Plugin.ContentFilter.Services.SegmentStore.LoadAll">
+            <summary>
+            Loads all segment files from the segment directory.
+            </summary>
+            <returns>A <see cref="T:System.Threading.Tasks.Task"/> representing the asynchronous operation.</returns>
+        </member>
+        <member name="M:Jellyfin.Plugin.ContentFilter.Services.SegmentStore.ReloadAll">
+            <summary>
+            Reloads all segment data from disk. Useful when configuration changes or new segments are generated.
+            </summary>
+            <returns>Task representing the asynchronous operation.</returns>
+        </member>
+        <member name="T:Jellyfin.Plugin.ContentFilter.Tasks.AnalyzeLibraryTask">
+            <summary>
+            Scheduled task to analyze library content.
+            </summary>
+        </member>
+        <member name="M:Jellyfin.Plugin.ContentFilter.Tasks.AnalyzeLibraryTask.#ctor(MediaBrowser.Controller.Library.ILibraryManager,Jellyfin.Plugin.ContentFilter.Services.SegmentStore,Microsoft.Extensions.Logging.ILogger{Jellyfin.Plugin.ContentFilter.Tasks.AnalyzeLibraryTask},System.Net.Http.IHttpClientFactory)">
+            <summary>
+            Initializes a new instance of the <see cref="T:Jellyfin.Plugin.ContentFilter.Tasks.AnalyzeLibraryTask"/> class.
+            </summary>
+            <param name="libraryManager">Library manager.</param>
+            <param name="segmentStore">Segment store.</param>
+            <param name="logger">Logger.</param>
+            <param name="httpClientFactory">HTTP client factory.</param>
+        </member>
+        <member name="P:Jellyfin.Plugin.ContentFilter.Tasks.AnalyzeLibraryTask.Name">
+            <inheritdoc />
+        </member>
+        <member name="P:Jellyfin.Plugin.ContentFilter.Tasks.AnalyzeLibraryTask.Key">
+            <inheritdoc />
+        </member>
+        <member name="P:Jellyfin.Plugin.ContentFilter.Tasks.AnalyzeLibraryTask.Description">
+            <inheritdoc />
+        </member>
+        <member name="P:Jellyfin.Plugin.ContentFilter.Tasks.AnalyzeLibraryTask.Category">
+            <inheritdoc />
+        </member>
+        <member name="M:Jellyfin.Plugin.ContentFilter.Tasks.AnalyzeLibraryTask.ExecuteAsync(System.IProgress{System.Double},System.Threading.CancellationToken)">
+            <inheritdoc />
+        </member>
+        <member name="M:Jellyfin.Plugin.ContentFilter.Tasks.AnalyzeLibraryTask.GetDefaultTriggers">
+            <inheritdoc />
+        </member>
+        <member name="M:Jellyfin.Plugin.ContentFilter.Tasks.AnalyzeLibraryTask.ConvertToContainerPath(System.String,Jellyfin.Plugin.ContentFilter.Configuration.PluginConfiguration)">
+            <summary>
+            Convert a Jellyfin file path to the path accessible by the AI service containers,
+            using the JellyfinMediaPath → AiServiceMediaPath mapping from plugin configuration.
+            </summary>
+        </member>
+        <member name="T:Jellyfin.Plugin.ContentFilter.Tasks.AnalyzeLibraryTask.SceneAnalyzerResponse">
+            <summary>
+            Response model for scene analyzer API.
+            </summary>
+        </member>
+        <member name="T:Jellyfin.Plugin.ContentFilter.Tasks.AnalyzeLibraryTask.SceneResult">
+            <summary>
+            Scene result from analyzer.
+            </summary>
+        </member>
+        <member name="T:Jellyfin.Plugin.ContentFilter.Tasks.AnalyzeLibraryTask.SceneAnalysis">
+            <summary>
+            Scene analysis data.
+            </summary>
+        </member>
+    </members>
+</doc>

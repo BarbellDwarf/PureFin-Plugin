@@ -1,0 +1,50 @@
+{
+  "schema_version": "1.0",
+  "models": [
+    {
+      "service": "nsfw-detector",
+      "name": "nsfw-vit",
+      "version": "1.0.0",
+      "filename": "nsfw/config.json",
+      "sha256": "",
+      "min_plugin_version": "1.0.0",
+      "type": "huggingface-transformers"
+    },
+    {
+      "service": "violence-detector",
+      "name": "violence-profile-speed",
+      "version": "nghiabntl/vit-base-violence-detection",
+      "filename": "violence/speed",
+      "sha256": "",
+      "min_plugin_version": "1.0.0",
+      "type": "huggingface-transformers"
+    },
+    {
+      "service": "violence-detector",
+      "name": "violence-profile-balanced",
+      "version": "jaranohaal/vit-base-violence-detection",
+      "filename": "violence/balanced",
+      "sha256": "",
+      "min_plugin_version": "1.0.0",
+      "type": "huggingface-transformers"
+    },
+    {
+      "service": "violence-detector",
+      "name": "violence-profile-quality",
+      "version": "framasoft/vit-base-violence-detection",
+      "filename": "violence/quality",
+      "sha256": "",
+      "min_plugin_version": "1.0.0",
+      "type": "huggingface-transformers"
+    },
+    {
+      "service": "content-classifier",
+      "name": "clip-embedder",
+      "version": "1.0.0",
+      "filename": "clip/config.json",
+      "sha256": "",
+      "min_plugin_version": "1.0.0",
+      "type": "clip"
+    }
+  ]
+}

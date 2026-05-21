@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>PureFin Configuration</title>
+</head>
+<body>
+    <div id="PureFinConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-select,emby-checkbox">
+        <div data-role="content">
+            <div class="content-primary">
+                <form id="PureFinConfigForm">
+                    <div class="verticalSection">
+                        <h2 class="sectionTitle">PureFin Settings</h2>
+                        
+                        <div class="checkboxContainer">
+                            <label>
+                                <input type="checkbox" is="emby-checkbox" id="enableNudity" />
+                                <span>Enable Nudity Filtering</span>
+                            </label>
+                        </div>
+                        
+                        <div class="checkboxContainer">
+                            <label>
+                                <input type="checkbox" is="emby-checkbox" id="enableImmodesty" />
+                                <span>Enable Immodesty Filtering</span>
+                            </label>
+                        </div>
+                        
+                        <div class="checkboxContainer">
+                            <label>
+                                <input type="checkbox" is="emby-checkbox" id="enableViolence" />
+                                <span>Enable Violence Filtering</span>
+                            </label>
+                        </div>
+                        
+                        <div class="checkboxContainer">
+                            <label>
+                                <input type="checkbox" is="emby-checkbox" id="enableProfanity" />
+                                <span>Enable Profanity Filtering</span>
+                            </label>
+                        </div>
+                        
+                        <h3 style="margin-top: 20px;">Confidence Thresholds</h3>
+                        <div class="fieldDescription" style="margin-bottom: 15px;">
+                            Set the minimum confidence level (0.0 - 1.0) required to trigger filtering. 
+                            Higher values = more strict filtering (only very confident detections).
+                        </div>
+                        
+                        <div class="inputContainer">
+                            <label class="inputLabel" for="nudityThreshold">
+                                Nudity Threshold: <span id="nudityThresholdValue">0.35</span>
+                            </label>
+                            <input is="emby-input" type="range" id="nudityThreshold" name="nudityThreshold" 
+                                   min="0.1" max="0.9" step="0.05" value="0.35" 
+                                   oninput="document.getElementById('nudityThresholdValue').textContent = this.value" />
+                            <div class="fieldDescription">Current: 0.35 (moderate). Lower = more sensitive, Higher = less sensitive</div>
+                        </div>
+                        
+                        <div class="inputContainer">
+                            <label class="inputLabel" for="immodestyThreshold">
+                                Immodesty Threshold: <span id="immodestyThresholdValue">0.10</span>
+                            </label>
+                            <input is="emby-input" type="range" id="immodestyThreshold" name="immodestyThreshold" 
+                                   min="0.01" max="0.9" step="0.01" value="0.10" 
+                                   oninput="document.getElementById('immodestyThresholdValue').textContent = this.value" />
+                            <div class="fieldDescription">Revealing clothing and partial-skin scenes typically score 0.05–0.40. Recommended: 0.05 (strict) to 0.10 (moderate). Lower = more sensitive.</div>
+                        </div>
+                        
+                        <div class="inputContainer">
+                            <label class="inputLabel" for="violenceThreshold">
+                                Violence Threshold: <span id="violenceThresholdValue">0.65</span>
+                            </label>
+                            <input is="emby-input" type="range" id="violenceThreshold" name="violenceThreshold" 
+                                   min="0.1" max="0.95" step="0.05" value="0.65" 
+                                   oninput="document.getElementById('violenceThresholdValue').textContent = this.value" />
+                            <div class="fieldDescription">⚠️ The violence classifier outputs ~0.50 for all action/war movie content. Values below 0.65 will flag virtually every scene in action films. Recommended: 0.65–0.75 to catch only explicitly violent content.</div>
+                        </div>
+                        
+                        <div class="inputContainer">
+                            <label class="inputLabel" for="profanityThreshold">
+                                Profanity Threshold: <span id="profanityThresholdValue">0.30</span>
+                            </label>
+                            <input is="emby-input" type="range" id="profanityThreshold" name="profanityThreshold" 
+                                   min="0.1" max="0.9" step="0.05" value="0.30" 
+                                   oninput="document.getElementById('profanityThresholdValue').textContent = this.value" />
+                            <div class="fieldDescription">Current: 0.30 (moderate). Lower = more sensitive, Higher = less sensitive</div>
+                        </div>
+                        
+                        <div class="inputContainer">
+                            <label class="inputLabel" for="nudityConfirmationMinImmodesty">
+                                Nudity Confirmation (min immodesty): <span id="nudityConfirmationMinImmodestyValue">0.05</span>
+                            </label>
+                            <input is="emby-input" type="range" id="nudityConfirmationMinImmodesty" name="nudityConfirmationMinImmodesty" 
+                                   min="0.0" max="0.20" step="0.01" value="0.05" 
+                                   oninput="document.getElementById('nudityConfirmationMinImmodestyValue').textContent = this.value" />
+                            <div class="fieldDescription">Requires this minimum immodesty score to confirm a nudity detection. Eliminates false positives where the nudity detector fires on skin-toned backgrounds (e.g. war scenes). Set to 0.00 to disable and use nudity score alone.</div>
+                        </div>
+                        
+                        <div class="selectContainer">
+                            <label class="selectLabel" for="sensitivity">Sensitivity Level:</label>
+                            <select is="emby-select" id="sensitivity" name="sensitivity">
+                                <option value="strict">Strict</option>
+                                <option value="moderate">Moderate</option>
+                                <option value="permissive">Permissive</option>
+                            </select>
+                        </div>
+                        
+                        <div class="inputContainer">
+                            <label class="inputLabel" for="segmentDirectory">Segment Directory:</label>
+                            <input is="emby-input" type="text" id="segmentDirectory" name="segmentDirectory" />
+                            <div class="fieldDescription">Directory path where segment data is stored</div>
+                        </div>
+                        
+                        <div class="inputContainer">
+                            <label class="inputLabel" for="aiServiceBaseUrl">AI Service Base URL:</label>
+                            <input is="emby-input" type="text" id="aiServiceBaseUrl" name="aiServiceBaseUrl" />
+                            <div class="fieldDescription">Primary scene-analyzer URL (e.g. http://localhost:3002).</div>
+                        </div>
+
+                        <div class="inputContainer">
+                            <label class="inputLabel" for="aiServiceBaseUrls">Additional AI Service Base URLs:</label>
+                            <input is="emby-input" type="text" id="aiServiceBaseUrls" name="aiServiceBaseUrls" />
+                            <div class="fieldDescription">Optional extra hosts for load spreading/failover. Separate URLs with commas or semicolons.</div>
+                        </div>
+
+                        <div class="selectContainer">
+                            <label class="selectLabel" for="aiServiceLoadBalancingMode">AI Host Selection:</label>
+                            <select is="emby-select" id="aiServiceLoadBalancingMode" name="aiServiceLoadBalancingMode">
+                                <option value="round_robin">Round-robin (spread analysis across hosts)</option>
+                                <option value="failover">Failover (try next host only if previous fails)</option>
+                            </select>
+                        </div>
+
+                        <h3 style="margin-top: 20px;">Path Mapping (Docker)</h3>
+                        <div class="fieldDescription" style="margin-bottom: 15px;">
+                            When Jellyfin and the AI services run in separate Docker containers, their media paths differ.
+                            Set the root path Jellyfin uses and the corresponding root path the AI services use.
+                        </div>
+
+                        <div class="inputContainer">
+                            <label class="inputLabel" for="jellyfinMediaPath">Jellyfin Media Root Path:</label>
+                            <input is="emby-input" type="text" id="jellyfinMediaPath" name="jellyfinMediaPath" placeholder="/data/media/movies" />
+                            <div class="fieldDescription">The media root path as seen by Jellyfin (e.g. /data/media/movies or D:\Media\Movies)</div>
+                        </div>
+
+                        <div class="inputContainer">
+                            <label class="inputLabel" for="aiServiceMediaPath">AI Service Media Root Path:</label>
+                            <input is="emby-input" type="text" id="aiServiceMediaPath" name="aiServiceMediaPath" placeholder="/mnt/media" />
+                            <div class="fieldDescription">The same media root path as seen by the AI service containers (e.g. /mnt/media)</div>
+                        </div>
+                        
+                        <h3 style="margin-top: 20px;">Scene Detection Method</h3>
+                        <div class="fieldDescription" style="margin-bottom: 15px;">
+                            Choose how video scenes are detected for analysis. Different methods balance accuracy vs. speed.
+                        </div>
+                        
+                        <div class="selectContainer">
+                            <label class="selectLabel" for="sceneDetectionMethod">Detection Method:</label>
+                            <select is="emby-select" id="sceneDetectionMethod" name="sceneDetectionMethod" onchange="updateSceneMethodFields()">
+                                <option value="transnetv2">TransNetV2 AI (Recommended — variable shot-boundary detection)</option>
+                                <option value="ffmpeg">FFmpeg Scene Detection (variable, CPU-based fallback)</option>
+                                <option value="sampling">Fixed Interval Sampling (debug/diagnostic only — inaccurate)</option>
+                            </select>
+                        </div>
+
+                        <div id="samplingWarningBanner" style="display: none; background: #5c1a00; color: #ffcba4; border: 1px solid #c0440a; border-radius: 4px; padding: 10px 14px; margin-top: 8px;">
+                            ⚠️ <strong>Fixed Interval Sampling is not scene-accurate.</strong> It divides the video into equally-spaced chunks regardless of actual scene boundaries, which causes missed or incorrectly bounded segments. This mode is intended for debugging only. Use TransNetV2 or FFmpeg for real analysis.
+                        </div>
+                        
+                        <div class="inputContainer" id="ffmpegThresholdContainer" style="display: none;">
+                            <label class="inputLabel" for="ffmpegSceneThreshold">
+                                FFmpeg Scene Threshold: <span id="ffmpegSceneThresholdValue">0.30</span>
+                            </label>
+                            <input is="emby-input" type="range" id="ffmpegSceneThreshold" name="ffmpegSceneThreshold" 
+                                   min="0.1" max="0.9" step="0.05" value="0.30" 
+                                   oninput="document.getElementById('ffmpegSceneThresholdValue').textContent = this.value" />
+                            <div class="fieldDescription">Lower = more scene cuts detected, Higher = fewer cuts (0.3 is typical)</div>
+                        </div>
+                        
+                        <div class="inputContainer" id="samplingIntervalContainer" style="display: none;">
+                            <label class="inputLabel" for="samplingIntervalSeconds">
+                                Sampling Interval: <span id="samplingIntervalValue">30</span> seconds
+                            </label>
+                            <input is="emby-input" type="range" id="samplingIntervalSeconds" name="samplingIntervalSeconds" 
+                                   min="10" max="180" step="10" value="30" 
+                                   oninput="document.getElementById('samplingIntervalValue').textContent = this.value" />
+                            <div class="fieldDescription">Debug only — fixed-size chunks, not real scene boundaries. Not recommended for production use.</div>
+                        </div>
+
+                        <div class="inputContainer">
+                            <label class="inputLabel" for="sceneSampleCount">
+                                Frame Samples per Scene: <span id="sceneSampleCountValue">15</span>
+                            </label>
+                            <input is="emby-input" type="range" id="sceneSampleCount" name="sceneSampleCount" 
+                                   min="3" max="15" step="1" value="9" 
+                                   oninput="document.getElementById('sceneSampleCountValue').textContent = this.value" />
+                            <div class="fieldDescription">Higher values catch short/immediate content more reliably, but increase analysis time.</div>
+                        </div>
+
+                        <h3 style="margin-top: 20px;">Analysis Queue Controls (Admin)</h3>
+                        <div class="fieldDescription" style="margin-bottom: 10px;">
+                            Pause/resume queued AI analysis jobs without stopping containers. This is useful when you want to temporarily free compute resources.
+                        </div>
+                        <div id="queueStatusPanel" style="background: #1f1f1f; border: 1px solid #555; border-radius: 4px; padding: 10px; margin-bottom: 10px;">
+                            <div><strong>Status:</strong> <span id="queueStatusText">Loading...</span></div>
+                            <div><strong>Pending:</strong> <span id="queuePendingJobs">-</span> | <strong>Active:</strong> <span id="queueActiveJobs">-</span></div>
+                            <div><strong>Processed:</strong> <span id="queueProcessedJobs">-</span> | <strong>Failed:</strong> <span id="queueFailedJobs">-</span></div>
+                            <div><strong>Model auto-unload:</strong> <span id="queueModelUnloadSeconds">-</span> seconds idle</div>
+                            <div style="margin-top: 8px;"><strong>Configured Hosts:</strong> <span id="queueConfiguredHosts">-</span> | <strong>Reachable:</strong> <span id="queueReachableHosts">-</span></div>
+                            <div id="queueHostsRuntime" style="margin-top: 8px; font-size: 0.95em; opacity: 0.9;">-</div>
+                        </div>
+                        <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px;">
+                            <button is="emby-button" type="button" class="raised" id="refreshQueueStatusButton">Refresh Queue Status</button>
+                            <button is="emby-button" type="button" class="raised" id="pauseQueueButton">Pause Queue</button>
+                            <button is="emby-button" type="button" class="raised" id="resumeQueueButton">Resume Queue</button>
+                        </div>
+
+                        <div class="checkboxContainer">
+                            <label>
+                                <input type="checkbox" is="emby-checkbox" id="autoPauseQueueDuringTranscoding" />
+                                <span>Auto-pause AI queue while Jellyfin is transcoding</span>
+                            </label>
+                            <div class="fieldDescription">Useful when AI jobs share compute with playback transcodes. Disable this if AI runs on a separate host and should keep processing during transcoding.</div>
+                        </div>
+                          
+                        <div class="checkboxContainer">
+                            <label>
+                                <input type="checkbox" is="emby-checkbox" id="preferCommunityData" />
+                                <span>Prefer Community Data</span>
+                            </label>
+                            <div class="fieldDescription">Prefer community-curated segments over AI-generated ones when available</div>
+                        </div>
+                        
+                        <div class="checkboxContainer">
+                            <label>
+                                <input type="checkbox" is="emby-checkbox" id="enableOsdFeedback" />
+                                <span>Enable OSD Feedback</span>
+                            </label>
+                            <div class="fieldDescription">Show on-screen notifications when content is filtered</div>
+                        </div>
+
+                        <div class="verticalSection" style="margin-top: 24px; padding: 12px; border: 1px solid #666; border-radius: 4px; opacity: 0.6;">
+                            <h3 style="margin-top: 0;">Per-User Profiles <span style="font-size: 0.8em; font-weight: normal;">(Coming in a future release)</span></h3>
+                            <div class="fieldDescription">Per-user filtering profiles are not yet implemented. All users currently share the global settings above.</div>
+                        </div>
+                        
+                        <button is="emby-button" type="submit" class="raised button-submit block">
+                            <span>Save</span>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <script type="text/javascript">
+            var PureFinConfig = {
+                pluginUniqueId: 'a3f8c6e0-4b2a-4d3c-8e9f-1a2b3c4d5e6f'
+            };
+
+            function updateSceneMethodFields() {
+                var method = document.getElementById('sceneDetectionMethod').value;
+                var ffmpegContainer = document.getElementById('ffmpegThresholdContainer');
+                var samplingContainer = document.getElementById('samplingIntervalContainer');
+                var samplingWarning = document.getElementById('samplingWarningBanner');
+                
+                ffmpegContainer.style.display = method === 'ffmpeg' ? 'block' : 'none';
+                samplingContainer.style.display = method === 'sampling' ? 'block' : 'none';
+                samplingWarning.style.display = method === 'sampling' ? 'block' : 'none';
+            }
+
+            function getAccessToken() {
+                if (!ApiClient) {
+                    return '';
+                }
+                return typeof ApiClient.accessToken === 'function'
+                    ? (ApiClient.accessToken() || '')
+                    : (ApiClient.accessToken || '');
+            }
+
+            function getAuthHeaders(includeJsonContentType) {
+                var headers = {};
+                if (includeJsonContentType) {
+                    headers['Content-Type'] = 'application/json';
+                }
+                var token = getAccessToken();
+                if (token) {
+                    headers['X-Emby-Authorization'] = 'MediaBrowser Token=' + token;
+                    headers['X-Emby-Token'] = token;
+                }
+                return headers;
+            }
+
+            function renderQueueStatus(data) {
+                var paused = !!(data.paused != null ? data.paused : data.Paused);
+                var partiallyPaused = !!(data.partially_paused != null ? data.partially_paused : data.PartiallyPaused);
+                var statusText = paused ? 'Paused' : 'Running';
+                if (partiallyPaused) {
+                    statusText = 'Partially Paused';
+                }
+                var pauseReason = data.pause_reason || data.pauseReason || data.PauseReason || '';
+                if (paused && pauseReason) {
+                    statusText += ' (' + pauseReason + ')';
+                }
+
+                document.getElementById('queueStatusText').textContent = statusText;
+                var pendingJobs = data.pending_jobs != null ? data.pending_jobs : data.pendingJobs != null ? data.pendingJobs : data.PendingJobs;
+                var activeJobs = data.active_jobs != null ? data.active_jobs : data.activeJobs != null ? data.activeJobs : data.ActiveJobs;
+                var processedJobs = data.processed_jobs != null ? data.processed_jobs : data.processedJobs != null ? data.processedJobs : data.ProcessedJobs;
+                var failedJobs = data.failed_jobs != null ? data.failed_jobs : data.failedJobs != null ? data.failedJobs : data.FailedJobs;
+                var unloadSeconds = data.model_idle_unload_seconds != null ? data.model_idle_unload_seconds : data.modelIdleUnloadSeconds != null ? data.modelIdleUnloadSeconds : data.ModelIdleUnloadSeconds;
+                var configuredHosts = data.configured_hosts != null ? data.configured_hosts : data.configuredHosts != null ? data.configuredHosts : data.ConfiguredHosts;
+                var reachableHosts = data.successful_hosts != null ? data.successful_hosts : data.successfulHosts != null ? data.successfulHosts : data.SuccessfulHosts;
+                var hosts = Array.isArray(data.hosts) ? data.hosts : (Array.isArray(data.Hosts) ? data.Hosts : []);
+
+                document.getElementById('queuePendingJobs').textContent = pendingJobs != null ? pendingJobs : '-';
+                document.getElementById('queueActiveJobs').textContent = activeJobs != null ? activeJobs : '-';
+                document.getElementById('queueProcessedJobs').textContent = processedJobs != null ? processedJobs : '-';
+                document.getElementById('queueFailedJobs').textContent = failedJobs != null ? failedJobs : '-';
+                document.getElementById('queueModelUnloadSeconds').textContent = unloadSeconds != null ? unloadSeconds : '-';
+                document.getElementById('queueConfiguredHosts').textContent = configuredHosts != null ? configuredHosts : '-';
+                document.getElementById('queueReachableHosts').textContent = reachableHosts != null ? reachableHosts : '-';
+
+                if (hosts.length > 0) {
+                    var hostRows = hosts.map(function (host) {
+                        var runtime = host.runtime || host.Runtime || {};
+                        var queue = host.queue || host.Queue || {};
+                        var runtimeHealth = runtime.health || runtime.Health || {};
+                        var downstream = runtimeHealth.downstream || runtimeHealth.Downstream || {};
+                        var nsfw = downstream.nsfw_detector || downstream.nsfwDetector || downstream.NsfwDetector || {};
+                        var violence = downstream.violence_detector || downstream.violenceDetector || downstream.ViolenceDetector || {};
+                        var profanity = downstream.profanity_detector || downstream.profanityDetector || downstream.ProfanityDetector || {};
+                        var runtimeModel = runtime.modelProfile || runtime.model_profile || runtime.ModelProfile || '-';
+                        var runtimeModelId = runtime.modelId || runtime.model_id || runtime.ModelId || '-';
+                        var runtimeDevice = runtime.device || runtime.Device || '-';
+                        var queueState = (queue.success != null ? queue.success : queue.Success) ? 'reachable' : 'unreachable';
+                        var nsfwReady = (nsfw.ready != null ? nsfw.ready : nsfw.Ready) ? 'ready' : 'not-ready';
+                        var violenceReady = (violence.ready != null ? violence.ready : violence.Ready) ? 'ready' : 'not-ready';
+                        var profanityConfigured = profanity.configured != null ? profanity.configured : (profanity.Configured != null ? profanity.Configured : false);
+                        var profanityReady = !profanityConfigured
+                            ? 'disabled'
+                            : ((profanity.ready != null ? profanity.ready : profanity.Ready) ? 'ready' : 'not-ready');
+                        var profanityDevice = profanity.device || profanity.Device || '-';
+                        return '[' + (host.baseUrl || host.base_url || host.BaseUrl || '-') + '] ' +
+                            queueState +
+                            ' | profile=' + runtimeModel +
+                            ' | model=' + runtimeModelId +
+                            ' | device=' + runtimeDevice +
+                            ' | nsfw=' + nsfwReady +
+                            ' | violence=' + violenceReady +
+                            ' | profanity=' + profanityReady +
+                            ' (' + profanityDevice + ')';
+                    });
+                    document.getElementById('queueHostsRuntime').textContent = hostRows.join(' || ');
+                } else {
+                    document.getElementById('queueHostsRuntime').textContent = '-';
+                }
+
+                document.getElementById('pauseQueueButton').disabled = paused && !partiallyPaused;
+                document.getElementById('resumeQueueButton').disabled = !(paused || partiallyPaused);
+            }
+
+            function refreshQueueStatus() {
+                var url = ApiClient.getUrl('Plugins/PureFin/Queue/Status');
+                return fetch(url, {
+                    method: 'GET',
+                    headers: getAuthHeaders(false)
+                }).then(function (response) {
+                    if (!response.ok) {
+                        throw new Error('Queue status request failed (' + response.status + ')');
+                    }
+                    return response.json();
+                }).then(function (data) {
+                    renderQueueStatus(data);
+                }).catch(function (error) {
+                    document.getElementById('queueStatusText').textContent = 'Unavailable';
+                    document.getElementById('queuePendingJobs').textContent = '-';
+                    document.getElementById('queueActiveJobs').textContent = '-';
+                    document.getElementById('queueProcessedJobs').textContent = '-';
+                    document.getElementById('queueFailedJobs').textContent = '-';
+                    document.getElementById('queueModelUnloadSeconds').textContent = '-';
+                    document.getElementById('queueConfiguredHosts').textContent = '-';
+                    document.getElementById('queueReachableHosts').textContent = '-';
+                    document.getElementById('queueHostsRuntime').textContent = '-';
+                    console.error('Queue status error', error);
+                });
+            }
+
+            function pauseQueue() {
+                var url = ApiClient.getUrl('Plugins/PureFin/Queue/Pause');
+                return fetch(url, {
+                    method: 'POST',
+                    headers: getAuthHeaders(true),
+                    body: JSON.stringify({ reason: 'Paused from PureFin Jellyfin UI' })
+                }).then(function (response) {
+                    if (!response.ok) {
+                        throw new Error('Queue pause failed (' + response.status + ')');
+                    }
+                    return response.json();
+                }).then(function (data) {
+                    renderQueueStatus(data);
+                }).catch(function (error) {
+                    Dashboard.alert('Unable to pause queue: ' + error.message);
+                });
+            }
+
+            function resumeQueue() {
+                var url = ApiClient.getUrl('Plugins/PureFin/Queue/Resume');
+                return fetch(url, {
+                    method: 'POST',
+                    headers: getAuthHeaders(false)
+                }).then(function (response) {
+                    if (!response.ok) {
+                        throw new Error('Queue resume failed (' + response.status + ')');
+                    }
+                    return response.json();
+                }).then(function (data) {
+                    renderQueueStatus(data);
+                }).catch(function (error) {
+                    Dashboard.alert('Unable to resume queue: ' + error.message);
+                });
+            }
+
+            document.getElementById('PureFinConfigPage').addEventListener('pageshow', function () {
+                Dashboard.showLoadingMsg();
+                ApiClient.getPluginConfiguration(PureFinConfig.pluginUniqueId).then(function (config) {
+                    document.getElementById('enableNudity').checked = config.EnableNudity;
+                    document.getElementById('enableImmodesty').checked = config.EnableImmodesty;
+                    document.getElementById('enableViolence').checked = config.EnableViolence;
+                    document.getElementById('enableProfanity').checked = config.EnableProfanity;
+                    document.getElementById('sensitivity').value = config.Sensitivity;
+                    document.getElementById('segmentDirectory').value = config.SegmentDirectory;
+                    document.getElementById('aiServiceBaseUrl').value = config.AiServiceBaseUrl;
+                    document.getElementById('aiServiceBaseUrls').value = config.AiServiceBaseUrls || '';
+                    document.getElementById('aiServiceLoadBalancingMode').value = config.AiServiceLoadBalancingMode || 'round_robin';
+                    document.getElementById('jellyfinMediaPath').value = config.JellyfinMediaPath || '';
+                    document.getElementById('aiServiceMediaPath').value = config.AiServiceMediaPath || '/mnt/media';
+                    document.getElementById('autoPauseQueueDuringTranscoding').checked = !!config.AutoPauseQueueDuringTranscoding;
+                    document.getElementById('preferCommunityData').checked = config.PreferCommunityData;
+                    document.getElementById('enableOsdFeedback').checked = config.EnableOsdFeedback;
+                    
+                    // Set threshold values and update display
+                    var nudityThreshold = config.NudityThreshold || 0.35;
+                    var immodestyThreshold = config.ImmodestyThreshold || 0.10;
+                    var violenceThreshold = config.ViolenceThreshold || 0.65;
+                    var profanityThreshold = config.ProfanityThreshold || 0.30;
+                    var nudityConfirmMin = (config.NudityConfirmationMinImmodesty !== undefined) ? config.NudityConfirmationMinImmodesty : 0.05;
+                    
+                    document.getElementById('nudityThreshold').value = nudityThreshold;
+                    document.getElementById('nudityThresholdValue').textContent = nudityThreshold;
+                    
+                    document.getElementById('immodestyThreshold').value = immodestyThreshold;
+                    document.getElementById('immodestyThresholdValue').textContent = immodestyThreshold;
+                    
+                    document.getElementById('violenceThreshold').value = violenceThreshold;
+                    document.getElementById('violenceThresholdValue').textContent = violenceThreshold;
+                    
+                    document.getElementById('profanityThreshold').value = profanityThreshold;
+                    document.getElementById('profanityThresholdValue').textContent = profanityThreshold;
+                    
+                    document.getElementById('nudityConfirmationMinImmodesty').value = nudityConfirmMin;
+                    document.getElementById('nudityConfirmationMinImmodestyValue').textContent = nudityConfirmMin;
+                    
+                    // Set scene detection values
+                    var sceneMethod = config.SceneDetectionMethod || 'transnetv2';
+                    var ffmpegThreshold = config.FfmpegSceneThreshold || 0.3;
+                    var samplingInterval = config.SamplingIntervalSeconds || 30;
+                    var sceneSampleCount = config.SceneSampleCount || 15;
+                    
+                    document.getElementById('sceneDetectionMethod').value = sceneMethod;
+                    document.getElementById('ffmpegSceneThreshold').value = ffmpegThreshold;
+                    document.getElementById('ffmpegSceneThresholdValue').textContent = ffmpegThreshold;
+                    document.getElementById('samplingIntervalSeconds').value = samplingInterval;
+                    document.getElementById('samplingIntervalValue').textContent = samplingInterval;
+                    document.getElementById('sceneSampleCount').value = sceneSampleCount;
+                    document.getElementById('sceneSampleCountValue').textContent = sceneSampleCount;
+                    
+                    updateSceneMethodFields();
+                    Dashboard.hideLoadingMsg();
+                    refreshQueueStatus();
+                });
+            });
+
+            document.getElementById('refreshQueueStatusButton').addEventListener('click', function () {
+                refreshQueueStatus();
+            });
+
+            document.getElementById('pauseQueueButton').addEventListener('click', function () {
+                pauseQueue();
+            });
+
+            document.getElementById('resumeQueueButton').addEventListener('click', function () {
+                resumeQueue();
+            });
+
+            document.getElementById('PureFinConfigForm').addEventListener('submit', function (e) {
+                e.preventDefault();
+                Dashboard.showLoadingMsg();
+
+                ApiClient.getPluginConfiguration(PureFinConfig.pluginUniqueId).then(function (config) {
+                    config.EnableNudity = document.getElementById('enableNudity').checked;
+                    config.EnableImmodesty = document.getElementById('enableImmodesty').checked;
+                    config.EnableViolence = document.getElementById('enableViolence').checked;
+                    config.EnableProfanity = document.getElementById('enableProfanity').checked;
+                    config.Sensitivity = document.getElementById('sensitivity').value;
+                    config.SegmentDirectory = document.getElementById('segmentDirectory').value;
+                    config.AiServiceBaseUrl = document.getElementById('aiServiceBaseUrl').value;
+                    config.AiServiceBaseUrls = document.getElementById('aiServiceBaseUrls').value;
+                    config.AiServiceLoadBalancingMode = document.getElementById('aiServiceLoadBalancingMode').value;
+                    config.JellyfinMediaPath = document.getElementById('jellyfinMediaPath').value;
+                    config.AiServiceMediaPath = document.getElementById('aiServiceMediaPath').value;
+                    config.AutoPauseQueueDuringTranscoding = document.getElementById('autoPauseQueueDuringTranscoding').checked;
+                    config.PreferCommunityData = document.getElementById('preferCommunityData').checked;
+                    config.EnableOsdFeedback = document.getElementById('enableOsdFeedback').checked;
+                    
+                    // Save threshold values
+                    config.NudityThreshold = parseFloat(document.getElementById('nudityThreshold').value);
+                    config.ImmodestyThreshold = parseFloat(document.getElementById('immodestyThreshold').value);
+                    config.ViolenceThreshold = parseFloat(document.getElementById('violenceThreshold').value);
+                    config.ProfanityThreshold = parseFloat(document.getElementById('profanityThreshold').value);
+                    config.NudityConfirmationMinImmodesty = parseFloat(document.getElementById('nudityConfirmationMinImmodesty').value);
+                    
+                    // Save scene detection settings
+                    config.SceneDetectionMethod = document.getElementById('sceneDetectionMethod').value;
+                    config.FfmpegSceneThreshold = parseFloat(document.getElementById('ffmpegSceneThreshold').value);
+                    config.SamplingIntervalSeconds = parseInt(document.getElementById('samplingIntervalSeconds').value);
+                    config.SceneSampleCount = parseInt(document.getElementById('sceneSampleCount').value);
+
+                    ApiClient.updatePluginConfiguration(PureFinConfig.pluginUniqueId, config).then(function (result) {
+                        Dashboard.processPluginConfigurationUpdateResult(result);
+                        
+                        // Always hide loading message first to prevent infinite loading
+                        Dashboard.hideLoadingMsg();
+                        
+                        // Try to trigger segment regeneration (optional)
+                        tryTriggerSegmentRegeneration();
+                    }).catch(function(error) {
+                        Dashboard.hideLoadingMsg();
+                        Dashboard.alert('Error saving settings: ' + error.message);
+                    });
+                });
+
+                return false;
+            });
+
+            function tryTriggerSegmentRegeneration() {
+                // Attempt to trigger analysis task, but don't block UI if it fails
+                try {
+                    fetch('/ScheduledTasks', {
+                        method: 'GET',
+                        headers: {
+                            'X-Emby-Authorization': ApiClient.accessToken ? 'MediaBrowser Token=' + ApiClient.accessToken : ''
+                        }
+                    }).then(function(response) {
+                        if (response.ok) {
+                            return response.json();
+                        }
+                        throw new Error('Failed to fetch tasks');
+                    }).then(function(tasks) {
+                        // Look for PureFin analysis task
+                        var analyzeTask = tasks.find(t => 
+                            t.Name === 'Analyze Library for PureFin' || 
+                            t.Name === 'Analyze Library Content'
+                        );
+                        
+                        if (analyzeTask) {
+                            // Trigger the task using correct endpoint
+                            fetch('/ScheduledTasks/Running/' + analyzeTask.Id, {
+                                method: 'POST',
+                                headers: {
+                                    'X-Emby-Authorization': ApiClient.accessToken ? 'MediaBrowser Token=' + ApiClient.accessToken : ''
+                                }
+                            }).then(function(taskResponse) {
+                                if (taskResponse.ok) {
+                                    Dashboard.alert('Settings saved! Segment regeneration started in background.');
+                                } else {
+                                    Dashboard.alert('Settings saved! Please manually run "Analyze Library for PureFin" task to apply new thresholds.');
+                                }
+                            }).catch(function() {
+                                Dashboard.alert('Settings saved! Please manually run "Analyze Library for PureFin" task to apply new thresholds.');
+                            });
+                        } else {
+                            Dashboard.alert('Settings saved! Analysis task not found - new thresholds will apply to future analyses.');
+                        }
+                    }).catch(function() {
+                        Dashboard.alert('Settings saved successfully! New thresholds will apply to future analyses.');
+                    });
+                } catch (error) {
+                    // Silent fail - settings were already saved successfully
+                    Dashboard.alert('Settings saved successfully!');
+                }
+            }
+        </script>
+    </div>
+</body>
+</html>

@@ -1,0 +1,65 @@
+# Intel GPU overlay for PureFin AI services
+#
+# Usage (run from the ai-services directory):
+#   docker compose -f docker-compose.yml -f docker-compose.intel.yml up --build -d
+#
+# Requirements:
+#   - Intel GPU (Gen 8+ integrated or Arc discrete) on Linux
+#   - Intel media drivers installed on the host:
+#       sudo apt install intel-media-va-driver-non-free vainfo
+#   - /dev/dri/renderD128 present and accessible (verify: ls /dev/dri/)
+#   - Smoke test: docker run --rm --device /dev/dri/renderD128 \
+#       intel/oneapi-basekit vainfo
+#
+# GPU path: VAAPI (iHD driver) for FFmpeg frame decode.
+#           PyTorch runs on CPU (OpenVINO acceleration is a future enhancement).
+# nsfw-detector: CPU-only (TensorFlow Intel wheels require separate setup).
+#
+# Notes:
+#   - Older iGPUs (Broadwell/Skylake) may need LIBVA_DRIVER_NAME=i965
+#   - Arc discrete GPUs use iHD driver (same as this file)
+#   - For QSV (QuickSync Video) instead of VAAPI, change FFMPEG_HWACCEL to 'qsv'
+
+x-intel-env: &intel-env
+  USE_GPU: "0"         # PyTorch CPU (OpenVINO not yet wired)
+  FFMPEG_HWACCEL: "vaapi"
+  VAAPI_DEVICE: "/dev/dri/renderD128"
+  LIBVA_DRIVER_NAME: "iHD"   # Change to 'i965' for pre-Broadwell iGPUs
+
+x-intel-devices: &intel-devices
+  - /dev/dri/renderD128
+
+services:
+  scene-analyzer:
+    build:
+      context: ./services/scene-analyzer
+      dockerfile: Dockerfile.intel
+    environment:
+      <<: *intel-env
+    devices: *intel-devices
+
+  violence-detector:
+    build:
+      context: ./services/violence-detector
+      dockerfile: Dockerfile.intel
+    environment:
+      <<: *intel-env
+    devices: *intel-devices
+
+  content-classifier:
+    profiles: ["legacy"]
+    build:
+      context: ./services/content-classifier
+    environment:
+      <<: *intel-env
+    devices: *intel-devices
+
+  profanity-detector:
+    build:
+      context: ./services/profanity-detector
+    environment:
+      <<: *intel-env
+      USE_GPU: "0"
+    devices: *intel-devices
+
+  # nsfw-detector runs CPU-only; no changes needed.

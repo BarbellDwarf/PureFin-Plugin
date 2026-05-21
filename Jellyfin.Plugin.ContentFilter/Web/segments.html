@@ -1,0 +1,749 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>PureFin Segments</title>
+    <style>
+        .pf-card {
+            border: 1px solid #555;
+            border-radius: 6px;
+            padding: 12px;
+            margin-bottom: 12px;
+            background: #1f1f1f;
+        }
+
+        .pf-search-result {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            border: 1px solid #444;
+            border-radius: 4px;
+            padding: 8px 10px;
+            margin-bottom: 8px;
+            background: #181818;
+        }
+
+        .pf-search-title {
+            font-weight: 600;
+        }
+
+        .pf-search-meta {
+            opacity: 0.8;
+            font-size: 0.92em;
+        }
+
+        .pf-toolbar {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 10px;
+            position: sticky;
+            top: 0;
+            z-index: 2;
+            background: #121212;
+            padding: 8px 0;
+        }
+
+        .pf-table-wrap {
+            overflow-x: auto;
+        }
+
+        .pf-table {
+            width: 100%;
+            min-width: 1160px;
+            border-collapse: collapse;
+        }
+
+        .pf-table th,
+        .pf-table td {
+            padding: 6px;
+            text-align: left;
+            vertical-align: top;
+            border-bottom: 1px solid #333;
+        }
+
+        .pf-table tbody tr:nth-child(even) {
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .pf-input-mono {
+            font-family: Consolas, "Courier New", monospace;
+            font-size: 0.92em;
+        }
+
+        .pf-active {
+            color: #7bd88f;
+            font-weight: 700;
+        }
+
+        .pf-inactive {
+            color: #ff7a7a;
+            font-weight: 700;
+        }
+    </style>
+</head>
+<body>
+    <div id="PureFinSegmentsPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button">
+        <div data-role="content">
+            <div class="content-primary">
+                <div class="verticalSection pf-card">
+                    <h2 class="sectionTitle">PureFin Segments (Admin Only)</h2>
+                    <div class="fieldDescription" style="margin-bottom: 12px;">
+                        Search for a movie or episode and inspect the segment windows that PureFin will filter.
+                    </div>
+
+                    <div class="inputContainer">
+                        <label class="inputLabel" for="segmentSearch">Search Media:</label>
+                        <input is="emby-input" type="text" id="segmentSearch" placeholder="Type a movie or episode title" />
+                    </div>
+
+                    <button is="emby-button" type="button" class="raised" id="segmentSearchButton">
+                        <span>Search</span>
+                    </button>
+
+                    <div id="segmentSearchResults" style="margin-top: 16px;"></div>
+                </div>
+
+                <div class="verticalSection pf-card" id="segmentDetailsSection" style="display: none; margin-top: 24px;">
+                    <h3 id="segmentItemTitle" style="margin-top: 0;"></h3>
+                    <div id="segmentMeta" class="fieldDescription" style="margin-bottom: 12px;"></div>
+                    <div id="segmentThresholdPreview" style="display: none; margin-bottom: 16px;"></div>
+                    <div id="segmentTableContainer"></div>
+                </div>
+            </div>
+        </div>
+
+        <script type="text/javascript">
+            var pluginUniqueId = 'a3f8c6e0-4b2a-4d3c-8e9f-1a2b3c4d5e6f';
+            var currentItem = null;
+            var currentSegments = [];
+            var previewSettings = {
+                enableNudity: true,
+                enableImmodesty: true,
+                enableViolence: true,
+                enableProfanity: true,
+                nudityThreshold: 0.35,
+                immodestyThreshold: 0.10,
+                violenceThreshold: 0.65,
+                profanityThreshold: 0.30,
+                nudityConfirmationMinImmodesty: 0.05,
+                showOnlyActive: false
+            };
+
+            function getAccessToken() {
+                if (!ApiClient) {
+                    return '';
+                }
+                return typeof ApiClient.accessToken === 'function'
+                    ? (ApiClient.accessToken() || '')
+                    : (ApiClient.accessToken || '');
+            }
+
+            function getAuthHeader() {
+                var token = getAccessToken();
+                if (token) {
+                    return {
+                        'X-Emby-Authorization': 'MediaBrowser Token=' + token,
+                        'X-Emby-Token': token
+                    };
+                }
+                return {};
+            }
+
+            function escapeHtml(value) {
+                return String(value || '')
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;')
+                    .replace(/'/g, '&#39;');
+            }
+
+            function toNumber(value, fallback) {
+                var parsed = Number(value);
+                return Number.isFinite(parsed) ? parsed : fallback;
+            }
+
+            function secondsToTimestamp(seconds) {
+                var total = Math.max(0, toNumber(seconds, 0));
+                var hours = Math.floor(total / 3600);
+                var minutes = Math.floor((total % 3600) / 60);
+                var secs = Math.floor(total % 60);
+                var millis = Math.round((total - Math.floor(total)) * 1000);
+                if (millis === 1000) {
+                    millis = 0;
+                    secs += 1;
+                }
+                if (secs === 60) {
+                    secs = 0;
+                    minutes += 1;
+                }
+                if (minutes === 60) {
+                    minutes = 0;
+                    hours += 1;
+                }
+                return String(hours).padStart(2, '0') + ':' +
+                    String(minutes).padStart(2, '0') + ':' +
+                    String(secs).padStart(2, '0') + '.' +
+                    String(millis).padStart(3, '0');
+            }
+
+            function parseTimestampToSeconds(value) {
+                var text = String(value || '').trim();
+                if (!text) {
+                    return NaN;
+                }
+
+                if (/^\d+(\.\d+)?$/.test(text)) {
+                    return Number(text);
+                }
+
+                var match = text.match(/^(\d{1,2}):([0-5]?\d):([0-5]?\d)(?:\.(\d{1,3}))?$/);
+                if (!match) {
+                    return NaN;
+                }
+
+                var hours = Number(match[1]);
+                var minutes = Number(match[2]);
+                var seconds = Number(match[3]);
+                var millisText = match[4] || '0';
+                var millis = Number(millisText.padEnd(3, '0'));
+                return (hours * 3600) + (minutes * 60) + seconds + (millis / 1000);
+            }
+
+            function getPreviewSettingsFromUi() {
+                var container = document.getElementById('segmentThresholdPreview');
+                if (!container || container.style.display === 'none') {
+                    return previewSettings;
+                }
+
+                previewSettings = {
+                    enableNudity: !!document.getElementById('previewEnableNudity').checked,
+                    enableImmodesty: !!document.getElementById('previewEnableImmodesty').checked,
+                    enableViolence: !!document.getElementById('previewEnableViolence').checked,
+                    enableProfanity: !!document.getElementById('previewEnableProfanity').checked,
+                    nudityThreshold: toNumber(document.getElementById('previewNudityThreshold').value, 0.35),
+                    immodestyThreshold: toNumber(document.getElementById('previewImmodestyThreshold').value, 0.10),
+                    violenceThreshold: toNumber(document.getElementById('previewViolenceThreshold').value, 0.65),
+                    profanityThreshold: toNumber(document.getElementById('previewProfanityThreshold').value, 0.30),
+                    nudityConfirmationMinImmodesty: toNumber(document.getElementById('previewNudityConfirm').value, 0.05),
+                    showOnlyActive: !!document.getElementById('previewShowOnlyActive').checked
+                };
+
+                return previewSettings;
+            }
+
+            function updateThresholdLabel(id, value) {
+                var el = document.getElementById(id);
+                if (el) {
+                    el.textContent = Number(value).toFixed(2);
+                }
+            }
+
+            function normalizeRawScores(rawScores) {
+                if (!rawScores || typeof rawScores !== 'object' || Array.isArray(rawScores)) {
+                    return {};
+                }
+
+                var normalized = {};
+                Object.keys(rawScores).forEach(function (key) {
+                    var score = toNumber(rawScores[key], NaN);
+                    if (key && Number.isFinite(score)) {
+                        normalized[key] = Math.max(0, Math.min(1, score));
+                    }
+                });
+                return normalized;
+            }
+
+            function normalizeSegments(segments) {
+                return (segments || []).map(function (segment) {
+                    return {
+                        Start: toNumber(segment.Start, 0),
+                        End: toNumber(segment.End, 0),
+                        Action: segment.Action || 'skip',
+                        Source: segment.Source || 'manual',
+                        RawScores: normalizeRawScores(segment.RawScores)
+                    };
+                }).sort(function (a, b) {
+                    return a.Start - b.Start;
+                });
+            }
+
+            function computeActiveCategories(segment, settings) {
+                if ((segment.Source || '').toLowerCase() === 'manual') {
+                    return ['manual'];
+                }
+
+                var scores = normalizeRawScores(segment.RawScores);
+                var categories = [];
+                var immodesty = toNumber(scores.immodesty, 0);
+
+                Object.keys(scores).forEach(function (key) {
+                    var score = toNumber(scores[key], 0);
+                    var category = key.toLowerCase();
+
+                    if (category === 'nudity' && settings.enableNudity && score >= settings.nudityThreshold) {
+                        if (settings.nudityConfirmationMinImmodesty <= 0 || immodesty >= settings.nudityConfirmationMinImmodesty) {
+                            categories.push('nudity');
+                        }
+                        return;
+                    }
+
+                    if (category === 'immodesty' && settings.enableImmodesty && score >= settings.immodestyThreshold) {
+                        categories.push('immodesty');
+                        return;
+                    }
+
+                    if ((category === 'violence' || category === 'general_violence' || category === 'extreme_violence') &&
+                        settings.enableViolence && score >= settings.violenceThreshold) {
+                        categories.push('violence');
+                        return;
+                    }
+
+                    if (category === 'profanity' && settings.enableProfanity && score >= settings.profanityThreshold) {
+                        categories.push('profanity');
+                    }
+                });
+
+                var unique = [];
+                categories.forEach(function (value) {
+                    if (unique.indexOf(value) === -1) {
+                        unique.push(value);
+                    }
+                });
+                return unique;
+            }
+
+            function isPreviewFilterable(segment, settings) {
+                return computeActiveCategories(segment, settings).length > 0;
+            }
+
+            function renderSearchResults(items) {
+                var container = document.getElementById('segmentSearchResults');
+                container.innerHTML = '';
+
+                if (!items.length) {
+                    container.textContent = 'No matching media items found.';
+                    return;
+                }
+
+                items.forEach(function (item) {
+                    var row = document.createElement('div');
+                    row.className = 'pf-search-result';
+
+                    var labelWrap = document.createElement('div');
+                    var label = document.createElement('div');
+                    label.className = 'pf-search-title';
+                    label.textContent = item.Name;
+                    var meta = document.createElement('div');
+                    meta.className = 'pf-search-meta';
+                    meta.textContent = item.Type + (item.ProductionYear ? (' • ' + item.ProductionYear) : '');
+                    labelWrap.appendChild(label);
+                    labelWrap.appendChild(meta);
+
+                    var btn = document.createElement('button');
+                    btn.setAttribute('is', 'emby-button');
+                    btn.className = 'raised';
+                    btn.textContent = 'View Segments';
+                    btn.addEventListener('click', function () {
+                        loadSegments(item);
+                    });
+
+                    row.appendChild(labelWrap);
+                    row.appendChild(btn);
+                    container.appendChild(row);
+                });
+            }
+
+            function renderThresholdControls() {
+                var preview = document.getElementById('segmentThresholdPreview');
+                var settings = previewSettings;
+                preview.style.display = 'block';
+                preview.innerHTML =
+                    '<h4 style="margin:0 0 8px 0;">Preview Threshold Tuning (does not save plugin config)</h4>' +
+                    '<div class="fieldDescription" style="margin-bottom:10px;">Adjust limits to instantly preview more or fewer skip points while editing.</div>' +
+                    '<div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:10px;">' +
+                    '<label><input type="checkbox" id="previewEnableNudity"' + (settings.enableNudity ? ' checked' : '') + '> Nudity</label>' +
+                    '<label><input type="checkbox" id="previewEnableImmodesty"' + (settings.enableImmodesty ? ' checked' : '') + '> Immodesty</label>' +
+                    '<label><input type="checkbox" id="previewEnableViolence"' + (settings.enableViolence ? ' checked' : '') + '> Violence</label>' +
+                    '<label><input type="checkbox" id="previewEnableProfanity"' + (settings.enableProfanity ? ' checked' : '') + '> Profanity</label>' +
+                    '<label><input type="checkbox" id="previewShowOnlyActive"' + (settings.showOnlyActive ? ' checked' : '') + '> Show only active skip points</label>' +
+                    '</div>' +
+                    '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;">' +
+                    '<div><label>Nudity: <span id="previewNudityThresholdValue">' + settings.nudityThreshold.toFixed(2) + '</span></label><input is="emby-input" type="range" id="previewNudityThreshold" min="0" max="1" step="0.01" value="' + settings.nudityThreshold + '"></div>' +
+                    '<div><label>Immodesty: <span id="previewImmodestyThresholdValue">' + settings.immodestyThreshold.toFixed(2) + '</span></label><input is="emby-input" type="range" id="previewImmodestyThreshold" min="0" max="1" step="0.01" value="' + settings.immodestyThreshold + '"></div>' +
+                    '<div><label>Violence: <span id="previewViolenceThresholdValue">' + settings.violenceThreshold.toFixed(2) + '</span></label><input is="emby-input" type="range" id="previewViolenceThreshold" min="0" max="1" step="0.01" value="' + settings.violenceThreshold + '"></div>' +
+                    '<div><label>Profanity: <span id="previewProfanityThresholdValue">' + settings.profanityThreshold.toFixed(2) + '</span></label><input is="emby-input" type="range" id="previewProfanityThreshold" min="0" max="1" step="0.01" value="' + settings.profanityThreshold + '"></div>' +
+                    '<div><label>Nudity Confirm Min Immodesty: <span id="previewNudityConfirmValue">' + settings.nudityConfirmationMinImmodesty.toFixed(2) + '</span></label><input is="emby-input" type="range" id="previewNudityConfirm" min="0" max="0.5" step="0.01" value="' + settings.nudityConfirmationMinImmodesty + '"></div>' +
+                    '</div>';
+
+                [
+                    'previewEnableNudity',
+                    'previewEnableImmodesty',
+                    'previewEnableViolence',
+                    'previewEnableProfanity',
+                    'previewShowOnlyActive',
+                    'previewNudityThreshold',
+                    'previewImmodestyThreshold',
+                    'previewViolenceThreshold',
+                    'previewProfanityThreshold',
+                    'previewNudityConfirm'
+                ].forEach(function (id) {
+                    var element = document.getElementById(id);
+                    if (element) {
+                        element.addEventListener('input', function () {
+                            updateThresholdLabel('previewNudityThresholdValue', document.getElementById('previewNudityThreshold').value);
+                            updateThresholdLabel('previewImmodestyThresholdValue', document.getElementById('previewImmodestyThreshold').value);
+                            updateThresholdLabel('previewViolenceThresholdValue', document.getElementById('previewViolenceThreshold').value);
+                            updateThresholdLabel('previewProfanityThresholdValue', document.getElementById('previewProfanityThreshold').value);
+                            updateThresholdLabel('previewNudityConfirmValue', document.getElementById('previewNudityConfirm').value);
+                            getPreviewSettingsFromUi();
+                            renderSegmentEditor();
+                        });
+                    }
+                });
+            }
+
+            function renderSegmentEditor() {
+                var section = document.getElementById('segmentDetailsSection');
+                var title = document.getElementById('segmentItemTitle');
+                var meta = document.getElementById('segmentMeta');
+                var tableContainer = document.getElementById('segmentTableContainer');
+                var item = currentItem;
+                var settings = getPreviewSettingsFromUi();
+                var filterableCount = currentSegments.filter(function (segment) {
+                    return isPreviewFilterable(segment, settings);
+                }).length;
+
+                section.style.display = 'block';
+                title.textContent = item.Name + ' (' + item.Type + ')';
+                meta.textContent = 'Segments: ' + currentSegments.length + ' | Active with current preview: ' + filterableCount + ' | Admin-only editor';
+
+                tableContainer.innerHTML = '';
+                renderThresholdControls();
+
+                var toolbar = document.createElement('div');
+                toolbar.className = 'pf-toolbar';
+                toolbar.innerHTML =
+                    '<button is="emby-button" type="button" class="raised" id="segmentAddButton"><span>Add Segment</span></button> ' +
+                    '<button is="emby-button" type="button" class="raised" id="segmentSaveButton"><span>Save Changes</span></button> ' +
+                    '<button is="emby-button" type="button" class="raised" id="segmentReloadButton"><span>Reload</span></button>';
+                tableContainer.appendChild(toolbar);
+
+                var tableWrap = document.createElement('div');
+                tableWrap.className = 'pf-table-wrap';
+                var table = document.createElement('table');
+                table.className = 'detailTable pf-table';
+                table.innerHTML =
+                    '<thead><tr>' +
+                    '<th style="text-align:left;padding:6px;">Start (HH:MM:SS.mmm)</th>' +
+                    '<th style="text-align:left;padding:6px;">End (HH:MM:SS.mmm)</th>' +
+                    '<th style="text-align:left;padding:6px;">Action</th>' +
+                    '<th style="text-align:left;padding:6px;">Preview</th>' +
+                    '<th style="text-align:left;padding:6px;">Preview Categories</th>' +
+                    '<th style="text-align:left;padding:6px;">Raw Scores (json)</th>' +
+                    '<th style="text-align:left;padding:6px;">Source</th>' +
+                    '<th style="text-align:left;padding:6px;">Remove</th>' +
+                    '</tr></thead><tbody id="segmentEditorBody"></tbody>';
+                tableWrap.appendChild(table);
+                tableContainer.appendChild(tableWrap);
+
+                var body = document.getElementById('segmentEditorBody');
+                var visibleSegments = settings.showOnlyActive
+                    ? currentSegments.filter(function (segment) { return isPreviewFilterable(segment, settings); })
+                    : currentSegments;
+
+                if (!visibleSegments.length) {
+                    var emptyRow = document.createElement('tr');
+                    emptyRow.innerHTML = '<td colspan="8" style="padding:8px;">No segments matched this preview. Lower thresholds or disable "Show only active".</td>';
+                    body.appendChild(emptyRow);
+                } else {
+                    visibleSegments.forEach(function (segment) {
+                        var index = currentSegments.indexOf(segment);
+                        var previewCategories = computeActiveCategories(segment, settings);
+                        var previewActive = previewCategories.length > 0;
+                        var row = document.createElement('tr');
+                        row.innerHTML =
+                            '<td style="padding:6px;"><input is="emby-input" class="pf-input-mono" type="text" data-field="start" data-index="' + index + '" value="' + escapeHtml(secondsToTimestamp(segment.Start)) + '" /></td>' +
+                            '<td style="padding:6px;"><input is="emby-input" class="pf-input-mono" type="text" data-field="end" data-index="' + index + '" value="' + escapeHtml(secondsToTimestamp(segment.End)) + '" /></td>' +
+                            '<td style="padding:6px;"><select data-field="action" data-index="' + index + '">' +
+                            '<option value="skip"' + (segment.Action === 'skip' ? ' selected' : '') + '>skip</option>' +
+                            '<option value="mute"' + (segment.Action === 'mute' ? ' selected' : '') + '>mute (fallbacks to skip)</option>' +
+                            '</select></td>' +
+                            '<td style="padding:6px;"><strong class="' + (previewActive ? 'pf-active' : 'pf-inactive') + '">' + (previewActive ? 'active' : 'inactive') + '</strong></td>' +
+                            '<td style="padding:6px;">' + escapeHtml(previewCategories.join(', ') || 'n/a') + '</td>' +
+                            '<td style="padding:6px;"><textarea class="pf-input-mono" data-field="scores" data-index="' + index + '" style="width:100%;min-height:56px;">' + escapeHtml(JSON.stringify(segment.RawScores || {})) + '</textarea></td>' +
+                            '<td style="padding:6px;"><input is="emby-input" type="text" data-field="source" data-index="' + index + '" value="' + escapeHtml(segment.Source || 'manual') + '" /></td>' +
+                            '<td style="padding:6px;"><button is="emby-button" type="button" class="raised" data-field="remove" data-index="' + index + '"><span>Remove</span></button></td>';
+                        body.appendChild(row);
+                    });
+                }
+
+                document.getElementById('segmentAddButton').addEventListener('click', function () {
+                    var last = currentSegments[currentSegments.length - 1];
+                    var start = last ? toNumber(last.End, 0) : 0;
+                    currentSegments.push({
+                        Start: start,
+                        End: start + 3,
+                        Action: 'skip',
+                        Source: 'manual',
+                        RawScores: { manual: 1.0 }
+                    });
+                    renderSegmentEditor();
+                });
+
+                document.getElementById('segmentSaveButton').addEventListener('click', saveSegments);
+                document.getElementById('segmentReloadButton').addEventListener('click', function () {
+                    if (currentItem) {
+                        loadSegments(currentItem);
+                    }
+                });
+
+                tableContainer.querySelectorAll('[data-field="remove"]').forEach(function (button) {
+                    button.addEventListener('click', function (event) {
+                        var index = Number(event.currentTarget.getAttribute('data-index'));
+                        currentSegments.splice(index, 1);
+                        renderSegmentEditor();
+                    });
+                });
+            }
+
+            function loadSegments(item) {
+                Dashboard.showLoadingMsg();
+                var url = ApiClient.getUrl('Plugins/PureFin/Segments/' + item.Id);
+
+                fetch(url, { headers: getAuthHeader() })
+                    .then(function (response) {
+                        if (response.status === 403) {
+                            throw new Error('Admin access required to view segments.');
+                        }
+                        if (!response.ok) {
+                            throw new Error('Segments not found for this item.');
+                        }
+                        return response.json();
+                    })
+                    .then(function (data) {
+                        currentItem = item;
+                        currentSegments = normalizeSegments(data.Segments || data.segments || []);
+                        renderSegmentEditor();
+                        Dashboard.hideLoadingMsg();
+                    })
+                    .catch(function (error) {
+                        Dashboard.hideLoadingMsg();
+                        Dashboard.alert(error.message);
+                    });
+            }
+
+            function collectSegmentsFromEditor() {
+                var rows = document.querySelectorAll('#segmentEditorBody tr');
+                var result = [];
+
+                rows.forEach(function (row) {
+                    var startInput = row.querySelector('[data-field="start"]');
+                    if (!startInput) {
+                        return;
+                    }
+
+                    var endInput = row.querySelector('[data-field="end"]');
+                    var actionInput = row.querySelector('[data-field="action"]');
+                    var scoreInput = row.querySelector('[data-field="scores"]');
+                    var sourceInput = row.querySelector('[data-field="source"]');
+
+                    var start = parseTimestampToSeconds(startInput.value);
+                    var end = parseTimestampToSeconds(endInput.value);
+                    if (!Number.isFinite(start) || !Number.isFinite(end)) {
+                        throw new Error('Start/end must be timestamps like 00:12:34.500 (or raw seconds).');
+                    }
+                    if (start < 0 || end <= start) {
+                        throw new Error('Each segment must have start >= 0 and end > start.');
+                    }
+
+                    var rawScores = {};
+                    var rawText = (scoreInput.value || '').trim();
+                    if (rawText) {
+                        try {
+                            rawScores = JSON.parse(rawText);
+                        } catch (error) {
+                            throw new Error('Raw Scores must be valid JSON (example: {"manual":1}).');
+                        }
+                        if (!rawScores || typeof rawScores !== 'object' || Array.isArray(rawScores)) {
+                            throw new Error('Raw Scores must be a JSON object.');
+                        }
+                    }
+
+                    result.push({
+                        Start: start,
+                        End: end,
+                        Action: actionInput.value || 'skip',
+                        Source: (sourceInput.value || 'manual').trim() || 'manual',
+                        RawScores: normalizeRawScores(rawScores)
+                    });
+                });
+
+                return result.sort(function (a, b) {
+                    return a.Start - b.Start;
+                });
+            }
+
+            function saveSegments() {
+                if (!currentItem) {
+                    return;
+                }
+
+                var payload;
+                try {
+                    payload = { Segments: collectSegmentsFromEditor() };
+                } catch (error) {
+                    Dashboard.alert(error.message);
+                    return;
+                }
+
+                Dashboard.showLoadingMsg();
+                var url = ApiClient.getUrl('Plugins/PureFin/Segments/' + currentItem.Id);
+                fetch(url, {
+                    method: 'PUT',
+                    headers: Object.assign({ 'Content-Type': 'application/json' }, getAuthHeader()),
+                    body: JSON.stringify(payload)
+                })
+                    .then(function (response) {
+                        if (response.status === 403) {
+                            throw new Error('Admin access required to edit segments.');
+                        }
+                        if (!response.ok) {
+                            return response.text().then(function (text) {
+                                throw new Error(text || 'Failed to save segments.');
+                            });
+                        }
+                        return response.json();
+                    })
+                    .then(function (data) {
+                        currentSegments = normalizeSegments(data.Segments || data.segments || []);
+                        renderSegmentEditor();
+                        Dashboard.hideLoadingMsg();
+                        Dashboard.alert('Segments saved.');
+                    })
+                    .catch(function (error) {
+                        Dashboard.hideLoadingMsg();
+                        Dashboard.alert(error.message);
+                    });
+            }
+
+            function runSearch() {
+                var term = document.getElementById('segmentSearch').value.trim();
+                if (!term) {
+                    Dashboard.alert('Enter a title to search.');
+                    return;
+                }
+
+                Dashboard.showLoadingMsg();
+                var userId = ApiClient.getCurrentUserId();
+                var query = {
+                    SearchTerm: term,
+                    IncludeItemTypes: 'Movie,Episode',
+                    Recursive: true,
+                    Limit: 25
+                };
+
+                ApiClient.getItems(userId, query).then(function (result) {
+                    renderSearchResults(result.Items || []);
+                    Dashboard.hideLoadingMsg();
+                }).catch(function (error) {
+                    Dashboard.hideLoadingMsg();
+                    Dashboard.alert('Search failed: ' + error.message);
+                });
+            }
+
+            function getItemIdFromHashQuery() {
+                var hash = String(window.location.hash || '');
+                var queryStart = hash.indexOf('?');
+                if (queryStart < 0) {
+                    return '';
+                }
+
+                var query = hash.substring(queryStart + 1);
+                var params = new URLSearchParams(query);
+                return (params.get('itemId') || '').trim();
+            }
+
+            function loadItemFromHashIfPresent() {
+                var itemId = getItemIdFromHashQuery();
+                if (!itemId) {
+                    return;
+                }
+
+                Dashboard.showLoadingMsg();
+                var userId = ApiClient.getCurrentUserId();
+                ApiClient.getItem(userId, itemId)
+                    .then(function (item) {
+                        if (!item || !item.Id) {
+                            throw new Error('Item not found for itemId=' + itemId);
+                        }
+
+                        loadSegments(item);
+                    })
+                    .catch(function (error) {
+                        Dashboard.hideLoadingMsg();
+                        Dashboard.alert('Unable to open item from link: ' + (error.message || error));
+                    });
+            }
+
+            function loadPreviewConfig() {
+                return ApiClient.getPluginConfiguration(pluginUniqueId).then(function (config) {
+                    previewSettings.enableNudity = !!config.EnableNudity;
+                    previewSettings.enableImmodesty = !!config.EnableImmodesty;
+                    previewSettings.enableViolence = !!config.EnableViolence;
+                    previewSettings.enableProfanity = !!config.EnableProfanity;
+                    previewSettings.nudityThreshold = toNumber(config.NudityThreshold, 0.35);
+                    previewSettings.immodestyThreshold = toNumber(config.ImmodestyThreshold, 0.10);
+                    previewSettings.violenceThreshold = toNumber(config.ViolenceThreshold, 0.65);
+                    previewSettings.profanityThreshold = toNumber(config.ProfanityThreshold, 0.30);
+                    previewSettings.nudityConfirmationMinImmodesty = toNumber(config.NudityConfirmationMinImmodesty, 0.05);
+                }).catch(function () {
+                    // Keep defaults if configuration load fails.
+                });
+            }
+
+            function onPageShow() {
+                document.getElementById('segmentSearch').value = '';
+                document.getElementById('segmentSearchResults').innerHTML = '';
+                document.getElementById('segmentDetailsSection').style.display = 'none';
+                document.getElementById('segmentThresholdPreview').style.display = 'none';
+                currentItem = null;
+                currentSegments = [];
+                loadPreviewConfig();
+                loadItemFromHashIfPresent();
+            }
+
+            function initializeSegmentsPage() {
+                var page = document.getElementById('PureFinSegmentsPage');
+                var searchButton = document.getElementById('segmentSearchButton');
+                if (!page || !searchButton) {
+                    setTimeout(initializeSegmentsPage, 50);
+                    return;
+                }
+
+                if (page.getAttribute('data-purefin-init') === '1') {
+                    return;
+                }
+
+                page.setAttribute('data-purefin-init', '1');
+                page.addEventListener('pageshow', onPageShow);
+                searchButton.addEventListener('click', runSearch);
+                document.getElementById('segmentSearch').addEventListener('keydown', function (event) {
+                    if (event.key === 'Enter') {
+                        event.preventDefault();
+                        runSearch();
+                    }
+                });
+            }
+
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', initializeSegmentsPage);
+            } else {
+                initializeSegmentsPage();
+            }
+        </script>
+    </div>
+</body>
+</html>
