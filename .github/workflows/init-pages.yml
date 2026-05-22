@@ -3,22 +3,32 @@ name: Initialize gh-pages
 on:
   workflow_dispatch:
 
+concurrency:
+  group: init-gh-pages
+  cancel-in-progress: false
+
 jobs:
   init:
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - name: Create gh-pages branch
+      - name: Create or refresh gh-pages branch
         run: |
           git clone https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }} repo
           cd repo
-          git checkout --orphan gh-pages
-          git rm -rf .
+
+          if git ls-remote --heads origin gh-pages | grep -q gh-pages; then
+            git checkout gh-pages
+          else
+            git checkout --orphan gh-pages
+            git rm -rf .
+          fi
+
           echo '[]' > repository.json
           echo '<h1>PureFin Plugin Repository</h1><p>Add this URL to Jellyfin: <code>https://BarbellDwarf.github.io/PureFin-Plugin/repository.json</code></p>' > index.html
           git add repository.json index.html
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git commit -m "Initialize gh-pages"
+          git diff --staged --quiet || git commit -m "Initialize gh-pages"
           git push origin gh-pages

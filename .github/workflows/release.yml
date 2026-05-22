@@ -12,13 +12,34 @@ concurrency:
 jobs:
   release:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: write
-      pages: write
-      id-token: write
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Ensure gh-pages branch exists
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if git ls-remote --heads origin gh-pages | grep -q gh-pages; then
+            echo "gh-pages branch already exists."
+            exit 0
+          fi
+
+          git clone "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}" repo
+          cd repo
+          git checkout --orphan gh-pages
+          git rm -rf .
+          echo '[]' > repository.json
+          echo '<h1>PureFin Plugin Repository</h1><p>Add this URL to Jellyfin: <code>https://BarbellDwarf.github.io/PureFin-Plugin/repository.json</code></p>' > index.html
+          git add repository.json index.html
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -m "Initialize gh-pages"
+          git push origin gh-pages
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4

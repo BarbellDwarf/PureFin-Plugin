@@ -6,6 +6,11 @@ on:
     paths:
       - 'ai-services/**'
       - '.github/workflows/release-ai-services.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: release-ai-services-main
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -13,6 +18,7 @@ permissions:
 jobs:
   release-ai-services:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
@@ -52,6 +58,7 @@ jobs:
           SERVICES=""
           if [[ "${SHARED_CHANGED}" == "true" ]]; then
             for service_dir in ai-services/services/*; do
+              [[ -d "${service_dir}" ]] || continue
               service_name="$(basename "${service_dir}")"
               SERVICES="${SERVICES} ${service_name}"
             done
@@ -61,7 +68,7 @@ jobs:
             done
           fi
 
-          SERVICES="$(echo "${SERVICES}" | xargs || true)"
+          SERVICES="$(echo "${SERVICES}" | tr ' ' '\n' | sed '/^$/d' | sort -u | xargs || true)"
           if [[ -z "${SERVICES}" ]]; then
             echo "should_release=false" >> "$GITHUB_OUTPUT"
             echo "services=" >> "$GITHUB_OUTPUT"
