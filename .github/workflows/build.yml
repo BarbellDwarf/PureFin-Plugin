@@ -3,12 +3,29 @@ name: Build
 on:
   push:
     branches: [main, develop]
+    paths:
+      - 'Jellyfin.Plugin.ContentFilter/**'
+      - 'Jellyfin.Plugin.ContentFilter.Tests/**'
+      - '.github/workflows/build.yml'
   pull_request:
-    branches: [main]
+    branches: [main, develop]
+    paths:
+      - 'Jellyfin.Plugin.ContentFilter/**'
+      - 'Jellyfin.Plugin.ContentFilter.Tests/**'
+      - '.github/workflows/build.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -16,27 +33,34 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '9.0.x'
+          cache: true
+          cache-dependency-path: |
+            Jellyfin.Plugin.ContentFilter/Jellyfin.Plugin.ContentFilter.csproj
+            Jellyfin.Plugin.ContentFilter.Tests/Jellyfin.Plugin.ContentFilter.Tests.csproj
 
       - name: Restore dependencies
-        run: dotnet restore
+        run: dotnet restore Jellyfin.Plugin.ContentFilter.Tests/Jellyfin.Plugin.ContentFilter.Tests.csproj
 
       - name: Build
-        run: dotnet build --no-restore --configuration Release
+        run: dotnet build Jellyfin.Plugin.ContentFilter.Tests/Jellyfin.Plugin.ContentFilter.Tests.csproj --no-restore --configuration Release
 
       - name: Run tests
-        run: dotnet test --no-build --configuration Release --logger "trx;LogFileName=test-results.trx"
+        run: dotnet test Jellyfin.Plugin.ContentFilter.Tests/Jellyfin.Plugin.ContentFilter.Tests.csproj --no-build --configuration Release --logger "trx;LogFileName=test-results.trx" --results-directory TestResults
 
       - name: Upload test results
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: test-results
-          path: '**/*.trx'
+          path: TestResults/**/*.trx
+          if-no-files-found: warn
           retention-days: 7
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
+        if: success()
         with:
           name: plugin-build
-          path: '**/bin/Release/net9.0/'
+          path: Jellyfin.Plugin.ContentFilter/bin/Release/net9.0/
+          if-no-files-found: error
           retention-days: 7

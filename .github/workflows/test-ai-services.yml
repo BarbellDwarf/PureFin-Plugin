@@ -5,14 +5,25 @@ on:
     branches: [main, develop]
     paths:
       - 'ai-services/**'
+      - '.github/workflows/test-ai-services.yml'
   pull_request:
-    branches: [main]
+    branches: [main, develop]
     paths:
       - 'ai-services/**'
+      - '.github/workflows/test-ai-services.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: test-ai-services-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -20,16 +31,19 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: pip
+          cache-dependency-path: ai-services/tests/requirements-test.txt
 
       - name: Install test dependencies
-        run: pip install -r ai-services/tests/requirements-test.txt
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r ai-services/tests/requirements-test.txt
 
       - name: Run tests
         run: pytest ai-services/tests/ -v --tb=short
 
       - name: Validate Python syntax
         run: |
-          python -m py_compile ai-services/services/nsfw-detector/app.py
-          python -m py_compile ai-services/services/content-classifier/app.py
-          python -m py_compile ai-services/services/scene-analyzer/app.py
+          python -m compileall ai-services/services -q
+          python -m compileall ai-services/scripts -q
           echo "All Python files syntax OK"
